@@ -155,3 +155,65 @@ export function formatShortAuditDate(isoOrDateStr?: string): string {
   }
 }
 
+/**
+ * Extrai o valor numérico do chamado GLPI para fins de comparação e ordenação por antiguidade.
+ * Considera como mais antigo o menor número de GLPI.
+ */
+export function parseGlpiNumber(glpiStr?: string): number {
+  if (!glpiStr) return Number.MAX_SAFE_INTEGER;
+  const digitsOnly = glpiStr.replace(/\D/g, '');
+  if (!digitsOnly) return Number.MAX_SAFE_INTEGER;
+  const parsed = parseInt(digitsOnly, 10);
+  return isNaN(parsed) ? Number.MAX_SAFE_INTEGER : parsed;
+}
+
+export interface ConflictPriorityInfo {
+  hasConflict: boolean;
+  isPriority: boolean; // Verdadeiro se esta reserva é a detentora do chamado mais antigo (menor GLPI)
+  conflicts: Reservation[];
+  priorityReservation: Reservation | null; // A reserva com menor número de GLPI no grupo de sobreposição
+  lowestGlpiNumber: number;
+}
+
+/**
+ * Avalia horários concorrentes para o mesmo dia e sala, aplicando a regra de precedência:
+ * Em caso de concorrência, o sistema prioriza o chamado mais antigo (menor número de GLPI).
+ */
+export function getConflictPriorityInfo(
+  target: Reservation,
+  allReservations: Reservation[]
+): ConflictPriorityInfo {
+  const conflicts = getConflictingReservations(target, allReservations);
+  if (conflicts.length === 0) {
+    return {
+      hasConflict: false,
+      isPriority: false,
+      conflicts: [],
+      priorityReservation: null,
+      lowestGlpiNumber: 0,
+    };
+  }
+
+  // Agrupa o alvo com todos os seus concorrentes no horário
+  let lowestRes: Reservation = target;
+  let lowestNum = parseGlpiNumber(target.glpi);
+
+  for (const r of conflicts) {
+    const num = parseGlpiNumber(r.glpi);
+    if (num < lowestNum) {
+      lowestNum = num;
+      lowestRes = r;
+    }
+  }
+
+  const isPriority = lowestRes.id === target.id;
+
+  return {
+    hasConflict: true,
+    isPriority,
+    conflicts,
+    priorityReservation: lowestRes,
+    lowestGlpiNumber: lowestNum,
+  };
+}
+

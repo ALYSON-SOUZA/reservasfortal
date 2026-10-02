@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { Reservation, Sala, Setor, AppUser } from '../types';
 import { DEFAULT_SALAS, DEFAULT_SETORES } from '../utils/mockData';
-import { getTodayString, hasTimeConflict, formatDateBR, formatDateTimeBR } from '../utils/dateUtils';
+import { getTodayString, hasTimeConflict, formatDateBR, formatDateTimeBR, parseGlpiNumber } from '../utils/dateUtils';
 import {
   X,
   Calendar,
@@ -18,6 +18,7 @@ import {
   Tv,
   CheckCircle2,
   UserCheck,
+  Star,
 } from 'lucide-react';
 import { salaService } from '../services/salaService';
 import { setorService } from '../services/setorService';
@@ -341,21 +342,47 @@ export const ReservationModal: React.FC<ReservationModalProps> = ({
               </div>
             )}
 
-            {/* Live Conflict Warning Banner */}
+            {/* Live Conflict Warning Banner com Regra de Antiguidade GLPI */}
             {realTimeConflict && (
               <div className="p-3.5 rounded-2xl bg-amber-50 border-2 border-amber-300 text-amber-950 text-xs flex items-start gap-3">
                 <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
                 <div className="flex-1">
-                  <p className="font-bold font-raleway text-sm text-amber-900">
-                    ⚠️ Conflito de Horário Detectado!
-                  </p>
+                  <div className="flex items-center gap-2">
+                    <p className="font-bold font-raleway text-sm text-amber-900">
+                      ⚠️ Conflito de Horário Detectado!
+                    </p>
+                    <span className="text-[10px] bg-amber-200 text-amber-900 px-1.5 py-0.2 rounded font-bold">
+                      Regra: Menor GLPI Prioritário
+                    </span>
+                  </div>
                   <p className="mt-0.5 leading-relaxed font-semibold">
                     A sala <strong>{isCustomSala ? customSala : sala}</strong> já está agendada para{' '}
                     <strong>{realTimeConflict.solicitante}</strong> ({realTimeConflict.setor}) das{' '}
                     <strong>{realTimeConflict.horaInicial} às {realTimeConflict.horaFinal}</strong> (GLPI #{realTimeConflict.glpi}).
                   </p>
+
+                  {/* Análise de Precedência GLPI em Tempo Real */}
+                  {glpi.trim() && parseGlpiNumber(glpi) !== Number.MAX_SAFE_INTEGER && (
+                    <div className="mt-2">
+                      {parseGlpiNumber(glpi) < parseGlpiNumber(realTimeConflict.glpi) ? (
+                        <div className="p-2 rounded-lg bg-emerald-100 border border-emerald-300 text-emerald-950 font-semibold flex items-center gap-1.5">
+                          <Star className="w-3.5 h-3.5 text-emerald-700 fill-emerald-500 shrink-0" />
+                          <span>
+                            ⭐ <strong>Prioridade por Antiguidade:</strong> O chamado digitado (#{glpi.trim()}) é mais antigo que o chamado concorrente (#{realTimeConflict.glpi}), recebendo prioridade no sistema.
+                          </span>
+                        </div>
+                      ) : (
+                        <div className="p-2 rounded-lg bg-amber-100/90 border border-amber-300 text-amber-950 font-semibold flex items-center gap-1.5">
+                          <AlertTriangle className="w-3.5 h-3.5 text-amber-700 shrink-0" />
+                          <span>
+                            ⚠️ <strong>Precedência Concorrente:</strong> O chamado existente (#{realTimeConflict.glpi} - {realTimeConflict.solicitante}) é mais antigo e manterá a prioridade da sala.
+                          </span>
+                        </div>
+                      )}
+                    </div>
+                  )}
                   
-                  <label className="mt-2.5 flex items-center gap-2 p-2 bg-amber-100 border border-amber-300 rounded-xl cursor-pointer hover:bg-amber-200/70 transition">
+                  <label className="mt-2.5 flex items-center gap-2 p-2 bg-amber-100/80 border border-amber-300 rounded-xl cursor-pointer hover:bg-amber-200/70 transition">
                     <input
                       type="checkbox"
                       checked={allowConflict}

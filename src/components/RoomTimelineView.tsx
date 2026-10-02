@@ -1,6 +1,13 @@
 import React, { useState, useMemo } from 'react';
 import { Reservation, Sala } from '../types';
-import { formatDateBR, getTodayString, getReservationStatus, getConflictingReservations, formatDateTimeBR } from '../utils/dateUtils';
+import {
+  formatDateBR,
+  getTodayString,
+  getReservationStatus,
+  getConflictingReservations,
+  getConflictPriorityInfo,
+  formatDateTimeBR,
+} from '../utils/dateUtils';
 import {
   ChevronLeft,
   ChevronRight,
@@ -14,6 +21,7 @@ import {
   CheckCircle2,
   CalendarDays,
   AlertTriangle,
+  Star,
 } from 'lucide-react';
 
 interface RoomTimelineViewProps {
@@ -298,11 +306,17 @@ export const RoomTimelineView: React.FC<RoomTimelineViewProps> = ({
                     {roomReservations.map((res, rIdx) => {
                       const pos = getPositionStyles(res.horaInicial, res.horaFinal);
                       const status = getReservationStatus(res.dia, res.horaInicial, res.horaFinal);
-                      const conflicts = getConflictingReservations(res, roomReservations);
-                      const hasConflict = conflicts.length > 0;
+                      const conflictInfo = getConflictPriorityInfo(res, roomReservations);
+                      const hasConflict = conflictInfo.hasConflict;
+                      const isPriority = conflictInfo.isPriority;
+                      const conflicts = conflictInfo.conflicts;
 
                       let bgClass = 'bg-[#AD2F3B] text-white border-[#7D1416] shadow-sm shadow-[#AD2F3B]/20';
-                      if (status === 'em_andamento') {
+                      if (hasConflict && isPriority) {
+                        bgClass = 'bg-emerald-700 text-white font-black border-2 border-emerald-400 shadow-md shadow-emerald-950/40';
+                      } else if (hasConflict && !isPriority) {
+                        bgClass = 'bg-amber-600/90 text-white font-medium border-2 border-amber-400 shadow-xs';
+                      } else if (status === 'em_andamento') {
                         bgClass = 'bg-[#7D1416] text-white font-extrabold border-[#AD2F3B] shadow-md shadow-[#7D1416]/40';
                       } else if (status === 'encerrada') {
                         bgClass = 'bg-slate-200 text-[#252A34]/70 border-slate-300';
@@ -310,9 +324,11 @@ export const RoomTimelineView: React.FC<RoomTimelineViewProps> = ({
                         bgClass = 'bg-[#252A34] text-white border-slate-900 shadow-sm';
                       }
 
-                      // If there is conflict, apply distinct amber warning styling and offset if overlapping
+                      // If there is conflict, apply distinct priority or warning styling
                       const conflictStyle = hasConflict
-                        ? 'ring-2 ring-amber-400 border-amber-500 opacity-95'
+                        ? isPriority
+                          ? 'ring-2 ring-emerald-300 ring-offset-1 ring-offset-slate-900 z-30'
+                          : 'ring-1 ring-amber-300 opacity-90'
                         : '';
 
                       return (
@@ -325,25 +341,42 @@ export const RoomTimelineView: React.FC<RoomTimelineViewProps> = ({
                           style={{
                             left: pos.left,
                             width: pos.width,
-                            zIndex: hasConflict ? 15 + rIdx : 10,
+                            zIndex: hasConflict ? (isPriority ? 35 : 15 + rIdx) : 10,
                           }}
                           className={`absolute top-1.5 bottom-1.5 rounded-xl p-1.5 sm:p-2 border transition-all duration-150 cursor-pointer overflow-hidden flex flex-col justify-between hover:scale-[1.02] hover:z-40 hover:shadow-lg ${bgClass} ${conflictStyle}`}
-                          title={`${hasConflict ? '⚠️ CONFLITO DE HORÁRIO DETECTADO! ' : ''}#${res.glpi} - ${res.solicitante} (${res.setor}) | ${res.horaInicial} às ${res.horaFinal}${hasConflict ? ` (Sobrepõe com ${conflicts.map(c => `${c.solicitante}`).join(', ')})` : ''}${(res.modificadoPor || res.criadoPor) ? ` | Modificado por ${res.modificadoPor || res.criadoPor} em ${formatDateTimeBR(res.modificadoEm || res.criadoEm)}` : ''}`}
+                          title={`${
+                            hasConflict
+                              ? isPriority
+                                ? '⭐ PRIORIDADE GLPI (Chamado mais antigo do horário concorrente) '
+                                : `⚠️ CONFLITO DE HORÁRIO (Precedência do chamado mais antigo GLPI #${conflictInfo.priorityReservation?.glpi} - ${conflictInfo.priorityReservation?.solicitante}) `
+                              : ''
+                          }#${res.glpi} - ${res.solicitante} (${res.setor}) | ${res.horaInicial} às ${res.horaFinal}${hasConflict ? ` (Sobrepõe com ${conflicts.map((c) => `${c.solicitante}`).join(', ')})` : ''}${(res.modificadoPor || res.criadoPor) ? ` | Modificado por ${res.modificadoPor || res.criadoPor} em ${formatDateTimeBR(res.modificadoEm || res.criadoEm)}` : ''}`}
                         >
                           <div className="flex items-center justify-between gap-1 leading-none">
                             <span className="text-[11px] font-bold truncate flex items-center gap-0.5">
-                              {hasConflict && <AlertTriangle className="w-3 h-3 text-amber-300 shrink-0 inline" />}
+                              {hasConflict && (
+                                isPriority ? (
+                                  <Star className="w-3 h-3 text-emerald-200 fill-emerald-300 shrink-0 inline" />
+                                ) : (
+                                  <AlertTriangle className="w-3 h-3 text-amber-200 shrink-0 inline" />
+                                )
+                              )}
                               {res.horaInicial} - {res.horaFinal}
                             </span>
-                            <span className="font-mono text-[10.5px] font-black opacity-95 shrink-0 bg-black/20 px-1 py-0.2 rounded">
+                            <span className={`font-mono text-[10.5px] font-black opacity-95 shrink-0 px-1 py-0.2 rounded ${isPriority ? 'bg-emerald-950/40 text-emerald-100' : 'bg-black/20'}`}>
                               #{res.glpi}
                             </span>
                           </div>
                           <div className="text-[11px] font-medium truncate font-raleway leading-tight flex items-center justify-between gap-1">
                             <span className="truncate">{res.solicitante}</span>
-                            {hasConflict && (
-                              <span className="text-[9px] bg-amber-400 text-amber-950 font-black px-1 rounded-sm shrink-0">
-                                CONFLITO
+                            {hasConflict && isPriority && (
+                              <span className="text-[8.5px] bg-emerald-400 text-emerald-950 font-black px-1 rounded-sm shrink-0 shadow-2xs">
+                                ⭐ PRIORITÁRIO
+                              </span>
+                            )}
+                            {hasConflict && !isPriority && (
+                              <span className="text-[8.5px] bg-amber-300 text-amber-950 font-black px-1 rounded-sm shrink-0">
+                                ⚠️ CONFLITO (#{conflictInfo.priorityReservation?.glpi})
                               </span>
                             )}
                           </div>

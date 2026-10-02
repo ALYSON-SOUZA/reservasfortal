@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   X,
   Database,
@@ -13,8 +13,13 @@ import {
   Layers,
   Building,
   CalendarCheck,
+  Cloud,
+  UploadCloud,
+  Smartphone,
+  Laptop,
 } from 'lucide-react';
 import { isSupabaseConfigured } from '../lib/supabase';
+import { reservationService } from '../services/reservationService';
 
 interface SupabaseModalProps {
   isOpen: boolean;
@@ -31,7 +36,39 @@ export const SupabaseModal: React.FC<SupabaseModalProps> = ({
 }) => {
   const [copied, setCopied] = useState(false);
   const [isChecking, setIsChecking] = useState(false);
+  const [isSyncing, setIsSyncing] = useState(false);
+  const [syncStatus, setSyncStatus] = useState<{ localCount: number; cloudCount: number; unsyncedCount: number } | null>(null);
+  const [syncFeedback, setSyncFeedback] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<'all' | 'reservations' | 'salas_setores'>('all');
+
+  // Atualiza status de sincronização ao abrir o modal
+  useEffect(() => {
+    if (isOpen) {
+      reservationService.getSyncStatus().then(setSyncStatus);
+    }
+  }, [isOpen]);
+
+  const handleManualSync = async () => {
+    setIsSyncing(true);
+    setSyncFeedback(null);
+    try {
+      const res = await reservationService.syncLocalToCloud();
+      await onRefreshData();
+      const newStatus = await reservationService.getSyncStatus();
+      setSyncStatus(newStatus);
+      if (res.error) {
+        setSyncFeedback(`Aviso: ${res.error}`);
+      } else if (res.syncedCount > 0) {
+        setSyncFeedback(`Sucesso! ${res.syncedCount} reserva(s) deste computador foram enviadas para o Supabase e agora estão salvas na nuvem.`);
+      } else {
+        setSyncFeedback(`Tudo atualizado! Todas as ${res.total} reservas já estão 100% sincronizadas na nuvem e acessíveis de qualquer aparelho.`);
+      }
+    } catch (err: any) {
+      setSyncFeedback(`Erro ao sincronizar: ${err.message}`);
+    } finally {
+      setIsSyncing(false);
+    }
+  };
 
   if (!isOpen) return null;
 
@@ -354,6 +391,80 @@ END $$;`;
               <RefreshCw className={`w-3.5 h-3.5 ${isChecking ? 'animate-spin' : ''}`} />
               <span>{isChecking ? 'Verificando...' : 'Testar Conexão'}</span>
             </button>
+          </div>
+
+          {/* Sincronização Multi-Dispositivos (PC / Celular / Outros Apps) */}
+          <div className="p-4 rounded-2xl bg-[#7D1416]/5 border-2 border-[#7D1416]/20 space-y-3">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div className="flex items-start gap-2.5">
+                <div className="w-8 h-8 rounded-xl bg-[#7D1416] text-white flex items-center justify-center shrink-0 shadow-sm mt-0.5">
+                  <Cloud className="w-4 h-4" />
+                </div>
+                <div>
+                  <h4 className="text-sm font-bold font-raleway text-[#7D1416] flex items-center gap-2">
+                    <span>Sincronização em Nuvem Multi-Dispositivos</span>
+                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-[#AD2F3B]/10 text-[#AD2F3B] border border-[#AD2F3B]/20">
+                      <Laptop className="w-3 h-3" />
+                      <span>PC</span>
+                      <span>⇄</span>
+                      <Smartphone className="w-3 h-3" />
+                      <span>Celular / Web</span>
+                    </span>
+                  </h4>
+                  <p className="text-xs text-[#252A34]/80 mt-0.5">
+                    Permite que as reservas cadastradas neste computador fiquem visíveis imediatamente ao abrir pelo link{' '}
+                    <code className="text-[#AD2F3B] bg-white px-1.5 py-0.5 rounded border border-[#AD2F3B]/30 font-mono text-[11px]">
+                      reservasfortal.ai.studio
+                    </code>{' '}
+                    em qualquer outro dispositivo.
+                  </p>
+                </div>
+              </div>
+
+              <button
+                id="btn-sincronizar-nuvem-manual"
+                type="button"
+                onClick={handleManualSync}
+                disabled={isSyncing}
+                className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-[#7D1416] hover:bg-[#AD2F3B] text-white text-xs font-bold font-raleway transition shadow-md active:scale-95 disabled:opacity-50 cursor-pointer shrink-0 self-stretch sm:self-auto justify-center"
+              >
+                <UploadCloud className={`w-4 h-4 ${isSyncing ? 'animate-bounce' : ''}`} />
+                <span>{isSyncing ? 'Sincronizando...' : 'Enviar Reservas para a Nuvem Agora'}</span>
+              </button>
+            </div>
+
+            {/* Contadores e Indicadores */}
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 pt-2 border-t border-[#7D1416]/10 text-xs">
+              <div className="bg-white p-2.5 rounded-xl border border-slate-200">
+                <span className="text-[#252A34]/60 text-[11px] block">Neste Navegador / PC:</span>
+                <span className="font-bold text-[#252A34] text-sm">
+                  {syncStatus ? `${syncStatus.localCount} reservas` : 'Carregando...'}
+                </span>
+              </div>
+              <div className="bg-white p-2.5 rounded-xl border border-slate-200">
+                <span className="text-[#252A34]/60 text-[11px] block">Na Nuvem Supabase:</span>
+                <span className="font-bold text-[#7D1416] text-sm">
+                  {syncStatus ? `${syncStatus.cloudCount} reservas` : 'Carregando...'}
+                </span>
+              </div>
+              <div className="bg-white p-2.5 rounded-xl border border-slate-200">
+                <span className="text-[#252A34]/60 text-[11px] block">Pendentes de Envio:</span>
+                <span className={`font-bold text-sm ${syncStatus && syncStatus.unsyncedCount > 0 ? 'text-[#FF2E63]' : 'text-emerald-600'}`}>
+                  {syncStatus
+                    ? syncStatus.unsyncedCount > 0
+                      ? `${syncStatus.unsyncedCount} pendente(s)`
+                      : '0 (100% Sincronizado)'
+                    : 'Checando...'}
+                </span>
+              </div>
+            </div>
+
+            {syncFeedback && (
+              <div className="p-2.5 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs flex items-center gap-2">
+                <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                <span>{syncFeedback}</span>
+              </div>
+            )}
           </div>
 
           {/* Guia Rápido de Configuração */}

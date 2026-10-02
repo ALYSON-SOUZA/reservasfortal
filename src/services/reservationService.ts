@@ -76,8 +76,135 @@ export function saveLocalReservations(reservations: Reservation[]): void {
 }
 
 export const reservationService = {
-  // 1. Listar todas as reservas
-  async getAll(): Promise<{ data: Reservation[]; isSupabase: boolean; error?: string }> {
+  // Sincronizar reservas locais deste computador para a Nuvem Supabase
+  async syncLocalToCloud(): Promise<{
+    syncedCount: number;
+    total: number;
+    data: Reservation[];
+    error?: string;
+  }> {
+    const local = getLocalReservations();
+    if (!isSupabaseConfigured || !supabase) {
+      return {
+        syncedCount: 0,
+        total: local.length,
+        data: local,
+        error: 'Supabase não configurado no ambiente.',
+      };
+    }
+
+    try {
+      // 1. Busca todas as reservas existentes no Supabase
+      const { data: cloudRows, error: fetchErr } = await supabase
+        .from('reservations')
+        .select('*');
+
+      if (fetchErr) {
+        console.warn('Erro ao consultar Supabase durante sincronização:', fetchErr.message);
+        return { syncedCount: 0, total: local.length, data: local, error: fetchErr.message };
+      }
+
+      const cloudReservations = (cloudRows || []).map((row: DbReservation) => toAppReservation(row));
+
+      // Função de identificação única da reserva (fingerprint)
+      const getFp = (r: { dia: string; sala: string; horaInicial: string; horaFinal: string; glpi: string; solicitante: string }) =>
+        `${r.dia?.trim()}|${r.sala?.trim()}|${r.horaInicial?.trim()}|${r.horaFinal?.trim()}|${(r.glpi || '').replace('#', '').trim()}|${(r.solicitante || '').trim().toLowerCase()}`;
+
+      const cloudFpSet = new Set(cloudReservations.map(getFp));
+
+      // Reservas locais que ainda NÃO constam no Supabase
+      const unsyncedLocal = local.filter((localRes) => !cloudFpSet.has(getFp(localRes)));
+
+      if (unsyncedLocal.length === 0) {
+        // Todas já estão na nuvem: atualiza o cache local
+        saveLocalReservations(cloudReservations);
+        return { syncedCount: 0, total: cloudReservations.length, data: cloudReservations };
+      }
+
+      console.log(`☁️ Sincronizando ${unsyncedLocal.length} reservas locais para o Supabase...`);
+
+      // Prepara os payloads omitindo IDs locais inconsistentes
+      const payloads = unsyncedLocal.map((item) => ({
+        dia: item.dia,
+        sala: item.sala,
+        hora_inicial: item.horaInicial,
+        hora_final: item.horaFinal,
+        solicitante: item.solicitante,
+        setor: item.setor,
+        glpi: (item.glpi || '').replace('#', '').trim(),
+        observacoes: item.observacoes || null,
+        criado_por: item.criadoPor || 'Sincronização Local',
+        modificado_por: item.modificadoPor || null,
+      }));
+
+      // Tenta inserir na nuvem
+      const { error: insertErr } = await supabase
+        .from('reservations')
+        .insert(payloads);
+
+      if (insertErr) {
+        console.warn('Erro ao inserir com auditoria, tentando payload básico:', insertErr.message);
+        const basicPayloads = unsyncedLocal.map((item) => ({
+          dia: item.dia,
+          sala: item.sala,
+          hora_inicial: item.horaInicial,
+          hora_final: item.horaFinal,
+          solicitante: item.solicitante,
+          setor: item.setor,
+          glpi: (item.glpi || '').replace('#', '').trim(),
+          observacoes: item.observacoes || null,
+        }));
+
+        const retry = await supabase.from('reservations').insert(basicPayloads);
+        if (retry.error) {
+          console.error('Falha ao persistir reservas no Supabase:', retry.error.message);
+          return { syncedCount: 0, total: cloudReservations.length, data: cloudReservations, error: retry.error.message };
+        }
+      }
+
+      // Re-busca a lista completa e oficial do Supabase
+      const { data: finalRows } = await supabase
+        .from('reservations')
+        .select('*')
+        .order('dia', { ascending: true })
+        .order('hora_inicial', { ascending: true });
+
+      const finalReservations = (finalRows || []).map((row: DbReservation) => toAppReservation(row));
+      saveLocalReservations(finalReservations);
+
+      console.log(`✅ Sincronização concluída com sucesso: ${unsyncedLocal.length} reservas enviadas para a nuvem!`);
+      return {
+        syncedCount: unsyncedLocal.length,
+        total: finalReservations.length,
+        data: finalReservations,
+      };
+    } catch (err: any) {
+      console.error('Erro na sincronização de dados locais:', err);
+      return { syncedCount: 0, total: local.length, data: local, error: err.message };
+    }
+  },
+
+  // Contagem de reservas pendentes de sincronização
+  async getSyncStatus(): Promise<{ localCount: number; cloudCount: number; unsyncedCount: number }> {
+    const local = getLocalReservations();
+    if (!isSupabaseConfigured || !supabase) {
+      return { localCount: local.length, cloudCount: 0, unsyncedCount: local.length };
+    }
+    try {
+      const { data } = await supabase.from('reservations').select('id, dia, sala, hora_inicial, hora_final, glpi, solicitante');
+      const cloud = data || [];
+      const getFp = (r: any) =>
+        `${(r.dia || '').trim()}|${(r.sala || '').trim()}|${(r.hora_inicial || r.horaInicial || '').trim()}|${(r.hora_final || r.horaFinal || '').trim()}|${(r.glpi || '').replace('#', '').trim()}|${(r.solicitante || '').trim().toLowerCase()}`;
+      const cloudFpSet = new Set(cloud.map(getFp));
+      const unsynced = local.filter((r) => !cloudFpSet.has(getFp(r)));
+      return { localCount: local.length, cloudCount: cloud.length, unsyncedCount: unsynced.length };
+    } catch {
+      return { localCount: local.length, cloudCount: 0, unsyncedCount: 0 };
+    }
+  },
+
+  // 1. Listar todas as reservas (com sincronização automática bi-direcional)
+  async getAll(): Promise<{ data: Reservation[]; isSupabase: boolean; syncedCount?: number; error?: string }> {
     if (!isSupabaseConfigured || !supabase) {
       return { data: getLocalReservations(), isSupabase: false };
     }
@@ -94,15 +221,31 @@ export const reservationService = {
         return { data: getLocalReservations(), isSupabase: false, error: error.message };
       }
 
-      if (data && data.length > 0) {
-        const mapped = data.map((row: DbReservation) => toAppReservation(row));
-        // Manter o cache local sincronizado
-        saveLocalReservations(mapped);
-        return { data: mapped, isSupabase: true };
+      const cloudReservations = (data || []).map((row: DbReservation) => toAppReservation(row));
+      const localReservations = getLocalReservations();
+
+      // Fingerprint para verificação
+      const getFp = (r: { dia: string; sala: string; horaInicial: string; horaFinal: string; glpi: string; solicitante: string }) =>
+        `${r.dia?.trim()}|${r.sala?.trim()}|${r.horaInicial?.trim()}|${r.horaFinal?.trim()}|${(r.glpi || '').replace('#', '').trim()}|${(r.solicitante || '').trim().toLowerCase()}`;
+
+      const cloudFpSet = new Set(cloudReservations.map(getFp));
+      const unsyncedLocal = localReservations.filter((r) => !cloudFpSet.has(getFp(r)));
+
+      // AUTO-SYNC: Se houver reservas locais que ainda não estão no Supabase, sincroniza agora!
+      if (unsyncedLocal.length > 0) {
+        console.log(`⚡ Sincronizando automaticamente ${unsyncedLocal.length} reservas locais com a nuvem Supabase...`);
+        const syncResult = await reservationService.syncLocalToCloud();
+        if (syncResult.data && syncResult.data.length > 0) {
+          return { data: syncResult.data, isSupabase: true, syncedCount: syncResult.syncedCount };
+        }
+      }
+
+      if (cloudReservations.length > 0) {
+        saveLocalReservations(cloudReservations);
+        return { data: cloudReservations, isSupabase: true };
       } else {
-        // Se a tabela estiver vazia no Supabase, tenta carregar e sincronizar os dados iniciais
-        const local = getLocalReservations();
-        return { data: local, isSupabase: true };
+        // Se nuvem estiver vazia e também não houver locais pendentes
+        return { data: [], isSupabase: true };
       }
     } catch (err: any) {
       console.error('Falha de conexão com o Supabase:', err);
@@ -178,10 +321,12 @@ export const reservationService = {
         }
 
         const saved = toAppReservation(retryResult.data as DbReservation);
+        saveLocalReservations([saved, ...getLocalReservations().filter((r) => r.id !== saved.id)]);
         return { data: saved, isSupabase: true };
       }
 
       const savedReservation = toAppReservation(data as DbReservation);
+      saveLocalReservations([savedReservation, ...getLocalReservations().filter((r) => r.id !== savedReservation.id)]);
       return { data: savedReservation, isSupabase: true };
     } catch (err: any) {
       console.error('Erro na criação de reserva no Supabase:', err);
@@ -261,10 +406,12 @@ export const reservationService = {
         }
 
         const mapped = (retryResult.data as DbReservation[]).map((d) => toAppReservation(d));
+        saveLocalReservations([...mapped, ...getLocalReservations()]);
         return { data: mapped, isSupabase: true };
       }
 
       const mapped = (data as DbReservation[]).map((d) => toAppReservation(d));
+      saveLocalReservations([...mapped, ...getLocalReservations()]);
       return { data: mapped, isSupabase: true };
     } catch (err: any) {
       console.error('Erro no createMany:', err);

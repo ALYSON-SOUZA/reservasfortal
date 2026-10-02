@@ -314,7 +314,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess }) => {
                     required
                     value={password}
                     onChange={handlePasswordChange}
-                    placeholder="Digite a senha Master (@mouraS0501)"
+                    placeholder=""
                     className="w-full pl-10 pr-10 py-3 rounded-xl border-2 border-[#AD2F3B]/40 focus:border-[#7D1416] focus:ring-4 focus:ring-[#7D1416]/15 outline-hidden transition text-sm font-mono font-bold text-slate-800 placeholder-slate-400 bg-slate-50/50 focus:bg-white"
                   />
                   <button

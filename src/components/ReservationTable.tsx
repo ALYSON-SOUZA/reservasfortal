@@ -1,6 +1,13 @@
 import React, { useState } from 'react';
 import { Reservation, AppUser } from '../types';
-import { formatDateBR, getReservationStatus, getConflictingReservations, formatDateTimeBR, formatShortAuditDate } from '../utils/dateUtils';
+import {
+  formatDateBR,
+  getReservationStatus,
+  getConflictingReservations,
+  getConflictPriorityInfo,
+  formatDateTimeBR,
+  formatShortAuditDate,
+} from '../utils/dateUtils';
 import { canEditOrDelete } from '../utils/rbac';
 import {
   Calendar,
@@ -20,6 +27,7 @@ import {
   Plus,
   Eye,
   Lock,
+  Star,
 } from 'lucide-react';
 
 interface ReservationTableProps {
@@ -127,51 +135,169 @@ export const ReservationTable: React.FC<ReservationTableProps> = ({
       <div className="md:hidden space-y-3">
         {reservations.map((res) => {
           const isPast = getReservationStatus(res.dia, res.horaInicial, res.horaFinal) === 'encerrada';
-          const conflicts = getConflictingReservations(res, reservations);
-          const hasConflict = conflicts.length > 0;
+          const conflictInfo = getConflictPriorityInfo(res, reservations);
+          const hasConflict = conflictInfo.hasConflict;
+          const isPriority = conflictInfo.isPriority;
+          const conflicts = conflictInfo.conflicts;
 
           return (
             <div
               key={res.id}
               className={`bg-white rounded-2xl p-4 border shadow-xs transition ${
-                hasConflict
-                  ? 'border-amber-400 bg-amber-50/20 ring-1 ring-amber-300'
+                hasConflict && isPriority
+                  ? 'border-emerald-500 bg-emerald-50/20 ring-2 ring-emerald-400/50 shadow-sm'
+                  : hasConflict && !isPriority
+                  ? 'border-amber-400 bg-amber-50/25 ring-1 ring-amber-300'
                   : 'border-slate-200/90'
               } ${isPast ? 'opacity-65 bg-slate-50' : ''}`}
             >
-              <div className="flex items-center justify-between mb-2.5 pb-2 border-b border-slate-100 flex-wrap gap-2">
-                <div className="flex items-center gap-1.5 flex-wrap">
+              <div className="flex items-start justify-between mb-2.5 pb-2 border-b border-slate-100 flex-wrap gap-2">
+                <div className="flex items-center gap-1.5 flex-wrap pt-1">
                   {getStatusBadge(res.dia, res.horaInicial, res.horaFinal)}
-                  {hasConflict && (
-                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold font-dm-sans bg-amber-100 text-amber-950 border border-amber-300 animate-pulse">
+                  {hasConflict && isPriority && (
+                    <span
+                      className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold font-dm-sans bg-emerald-100 text-emerald-950 border border-emerald-400 shadow-2xs"
+                      title={`Reserva Prioritária! Chamado mais antigo (GLPI #${res.glpi}) no horário concorrente.`}
+                    >
+                      <Star className="w-3 h-3 text-emerald-700 fill-emerald-500" />
+                      ⭐ Prioridade GLPI (Mais Antigo)
+                    </span>
+                  )}
+                  {hasConflict && !isPriority && (
+                    <span
+                      className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold font-dm-sans bg-amber-100 text-amber-950 border border-amber-300"
+                      title={`Conflito de Horário! O chamado mais antigo GLPI #${conflictInfo.priorityReservation?.glpi} (${conflictInfo.priorityReservation?.solicitante}) tem prioridade de uso.`}
+                    >
                       <AlertTriangle className="w-3 h-3 text-amber-700" />
-                      Conflito ({conflicts.length})
+                      Conflito (Precedência #{conflictInfo.priorityReservation?.glpi})
                     </span>
                   )}
                 </div>
-                <button
-                  type="button"
-                  onClick={() => onViewDetails?.(res)}
-                  className="font-mono font-bold text-xs bg-[#7D1416] text-white hover:bg-[#AD2F3B] px-2.5 py-1 rounded-lg border border-[#AD2F3B] flex items-center gap-1.5 cursor-pointer transition shadow-2xs group active:scale-95"
-                  title="Clique para ver detalhamento do chamado GLPI"
-                >
-                  <Ticket className="w-3.5 h-3.5 text-white/90 group-hover:scale-110 transition-transform" />
-                  <span>#{res.glpi}</span>
-                </button>
+
+                {/* Grupo de Ações Imediatamente Acima do Número do Chamado GLPI */}
+                <div className="flex flex-col items-end gap-1.5 shrink-0">
+                  {/* Botões de Ação organizados imediatamente ACIMA do chamado */}
+                  <div className="inline-flex items-center gap-1 bg-slate-100/90 p-1 rounded-lg border border-slate-200 shadow-2xs">
+                    {/* Ver detalhamento do chamado */}
+                    <button
+                      type="button"
+                      id={`btn-mob-detalhes-${res.id}`}
+                      onClick={() => onViewDetails?.(res)}
+                      title="Ver detalhamento do chamado"
+                      className="p-1 rounded text-slate-600 hover:text-[#7D1416] hover:bg-white transition cursor-pointer"
+                    >
+                      <Eye className="w-3.5 h-3.5" />
+                    </button>
+
+                    {/* Copiar dados da empresa */}
+                    <button
+                      type="button"
+                      id={`btn-mob-copiar-${res.id}`}
+                      onClick={() => handleCopy(res)}
+                      title="Copiar dados da empresa"
+                      className="p-1 rounded text-slate-600 hover:text-[#252A34] hover:bg-white transition cursor-pointer"
+                    >
+                      {copiedId === res.id ? (
+                        <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                      ) : (
+                        <Copy className="w-3.5 h-3.5" />
+                      )}
+                    </button>
+
+                    {/* Editar reserva (Acesso Master) */}
+                    {canManage ? (
+                      <button
+                        type="button"
+                        id={`btn-mob-editar-${res.id}`}
+                        onClick={() => onEdit(res)}
+                        title="Editar reserva (Acesso Master)"
+                        className="p-1 rounded text-[#252A34] hover:text-[#7D1416] hover:bg-white transition cursor-pointer"
+                      >
+                        <Edit2 className="w-3.5 h-3.5" />
+                      </button>
+                    ) : (
+                      <span
+                        title="Edição restrita: Apenas o Usuário Master pode alterar reservas"
+                        className="p-1 text-slate-300 cursor-not-allowed inline-flex items-center"
+                      >
+                        <Lock className="w-3.5 h-3.5 text-slate-300" />
+                      </span>
+                    )}
+
+                    {/* Excluir reserva (Acesso Master) */}
+                    {canManage && (
+                      <button
+                        type="button"
+                        id={`btn-mob-excluir-${res.id}`}
+                        onClick={() => onDelete(res)}
+                        title="Excluir reserva (Acesso Master)"
+                        className="p-1 rounded text-slate-500 hover:text-[#AD2F3B] hover:bg-rose-50 transition cursor-pointer"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    )}
+                  </div>
+
+                  {/* Número do Chamado GLPI (imediatamente abaixo dos botões) */}
+                  <button
+                    type="button"
+                    onClick={() => onViewDetails?.(res)}
+                    className={`font-mono font-bold text-xs px-2.5 py-1 rounded-lg border flex items-center gap-1.5 cursor-pointer transition shadow-2xs group active:scale-95 ${
+                      hasConflict && isPriority
+                        ? 'bg-emerald-700 hover:bg-emerald-800 text-white border-emerald-500 ring-2 ring-emerald-400/40'
+                        : 'bg-[#7D1416] text-white hover:bg-[#AD2F3B] border-[#AD2F3B]'
+                    }`}
+                    title="Clique para ver detalhamento do chamado GLPI"
+                  >
+                    <Ticket className="w-3.5 h-3.5 text-white/90 group-hover:scale-110 transition-transform" />
+                    <span>#{res.glpi}</span>
+                    {hasConflict && isPriority && (
+                      <span className="bg-emerald-500 text-white text-[9px] font-black px-1 rounded">⭐ TOP 1</span>
+                    )}
+                  </button>
+                </div>
               </div>
 
-              {/* Alerta de Conflito Mobile */}
+              {/* Alerta de Conflito Mobile com Regra de Antiguidade */}
               {hasConflict && (
-                <div className="mb-2.5 p-2 bg-amber-50 border border-amber-200 rounded-xl text-[11px] text-amber-950 font-dm-sans">
-                  <div className="flex items-center gap-1 font-bold text-amber-900">
-                    <AlertTriangle className="w-3.5 h-3.5 text-amber-700 shrink-0" />
-                    <span>Sobreposição de horário:</span>
+                <div
+                  className={`mb-2.5 p-2.5 rounded-xl border text-[11px] font-dm-sans ${
+                    isPriority
+                      ? 'bg-emerald-50/80 border-emerald-300 text-emerald-950'
+                      : 'bg-amber-50 border-amber-300 text-amber-950'
+                  }`}
+                >
+                  <div className="flex items-center gap-1.5 font-bold">
+                    {isPriority ? (
+                      <>
+                        <Star className="w-3.5 h-3.5 text-emerald-700 fill-emerald-500 shrink-0" />
+                        <span className="text-emerald-900">⭐ Chamado mais antigo — Prioridade Garantida:</span>
+                      </>
+                    ) : (
+                      <>
+                        <AlertTriangle className="w-3.5 h-3.5 text-amber-700 shrink-0" />
+                        <span className="text-amber-900">⚠️ Conflito de horário (Chamado Posterior):</span>
+                      </>
+                    )}
                   </div>
-                  {conflicts.map((c) => (
-                    <p key={c.id} className="pl-4.5 mt-0.5 text-amber-900 font-medium">
-                      • {c.solicitante} ({c.horaInicial} às {c.horaFinal}) — GLPI #{c.glpi}
-                    </p>
-                  ))}
+                  {isPriority ? (
+                    <div className="mt-1">
+                      <p className="text-emerald-900 font-medium">
+                        Por possuir o chamado GLPI mais antigo (#{res.glpi}), esta reunião tem precedência sobre {conflicts.length} agendamento(s) concorrente(s):
+                      </p>
+                      {conflicts.map((c) => (
+                        <p key={c.id} className="pl-3 mt-0.5 text-emerald-800 font-semibold">
+                          • {c.solicitante} ({c.horaInicial} às {c.horaFinal}) — GLPI #{c.glpi}
+                        </p>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="mt-1">
+                      <p className="text-amber-900 font-medium">
+                        A prioridade da sala pertence ao chamado mais antigo <strong>GLPI #{conflictInfo.priorityReservation?.glpi} ({conflictInfo.priorityReservation?.solicitante})</strong>.
+                      </p>
+                    </div>
+                  )}
                 </div>
               )}
 
@@ -216,54 +342,6 @@ export const ReservationTable: React.FC<ReservationTableProps> = ({
                   </div>
                 )}
               </div>
-
-              {/* Mobile Actions */}
-              <div className="flex items-center justify-end gap-2 pt-3 mt-2 border-t border-slate-100">
-                <button
-                  onClick={() => handleCopy(res)}
-                  className="px-3 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold font-dm-sans flex items-center gap-1 transition cursor-pointer"
-                >
-                  {copiedId === res.id ? (
-                    <>
-                      <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
-                      <span>Copiado</span>
-                    </>
-                  ) : (
-                    <>
-                      <Copy className="w-3.5 h-3.5 text-slate-500" />
-                      <span>Copiar</span>
-                    </>
-                  )}
-                </button>
-
-                {canManage ? (
-                  <>
-                    <button
-                      onClick={() => onEdit(res)}
-                      className="px-3 py-1.5 rounded-xl bg-slate-100 hover:bg-[#AD2F3B] hover:text-white text-[#252A34] text-xs font-semibold font-dm flex items-center gap-1 transition cursor-pointer"
-                    >
-                      <Edit2 className="w-3.5 h-3.5" />
-                      <span>Editar</span>
-                    </button>
-
-                    <button
-                      onClick={() => onDelete(res)}
-                      className="px-2.5 py-1.5 rounded-xl bg-slate-100 text-slate-600 hover:bg-[#FF2E63] hover:text-white text-xs font-semibold font-dm transition cursor-pointer"
-                      title="Excluir reserva"
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </button>
-                  </>
-                ) : (
-                  <span
-                    className="inline-flex items-center gap-1 px-2.5 py-1 rounded-xl bg-slate-100 text-slate-400 text-[11px] font-medium font-dm border border-slate-200 select-none"
-                    title="Apenas o Usuário Master tem permissão para editar ou excluir reservas."
-                  >
-                    <Lock className="w-3 h-3 text-slate-400" />
-                    <span>Apenas Master</span>
-                  </span>
-                )}
-              </div>
             </div>
           );
         })}
@@ -276,28 +354,31 @@ export const ReservationTable: React.FC<ReservationTableProps> = ({
             {/* Header da Tabela em Bordô #7D1416 (Identidade Bellinati Perez) */}
             <thead>
               <tr className="bg-[#7D1416] text-white border-b-2 border-[#AD2F3B] text-[11px] sm:text-xs font-bold font-raleway tracking-wider select-none">
-                <th className="py-3 px-3 w-[12%] text-white">STATUS</th>
+                <th className="py-3 px-3 w-[11%] text-white">STATUS</th>
                 <th className="py-3 px-2.5 w-[10%] text-white">DATA</th>
                 <th className="py-3 px-3 w-[22%] text-white">SALA</th>
                 <th className="py-3 px-2.5 w-[13%] text-white">HORÁRIO</th>
                 <th className="py-3 px-3 w-[18%] text-white">SOLICITANTE</th>
-                <th className="py-3 px-2.5 w-[12%] text-white">SETOR</th>
-                <th className="py-3 px-2 w-[7%] text-white">GLPI</th>
-                <th className="py-3 px-2.5 w-[6%] text-right text-white">AÇÕES</th>
+                <th className="py-3 px-2.5 w-[10%] text-white">SETOR</th>
+                <th className="py-3 px-3 w-[16%] text-center text-white">CHAMADO GLPI & AÇÕES</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-200/70 text-xs sm:text-sm font-dm-sans">
               {reservations.map((res, index) => {
                 const isPast = getReservationStatus(res.dia, res.horaInicial, res.horaFinal) === 'encerrada';
-                const conflicts = getConflictingReservations(res, reservations);
-                const hasConflict = conflicts.length > 0;
+                const conflictInfo = getConflictPriorityInfo(res, reservations);
+                const hasConflict = conflictInfo.hasConflict;
+                const isPriority = conflictInfo.isPriority;
+                const conflicts = conflictInfo.conflicts;
 
                 return (
                   <tr
                     key={res.id}
                     id={`reserva-row-${res.id}`}
                     className={`hover:bg-[#AD2F3B]/5 transition-colors ${
-                      hasConflict
+                      hasConflict && isPriority
+                        ? 'bg-emerald-50/70 hover:bg-emerald-100/60 border-l-4 border-l-emerald-600'
+                        : hasConflict && !isPriority
                         ? 'bg-amber-50/50 hover:bg-amber-100/50 border-l-4 border-l-amber-500'
                         : isPast
                         ? 'bg-slate-100/50 opacity-70'
@@ -310,13 +391,22 @@ export const ReservationTable: React.FC<ReservationTableProps> = ({
                     <td className="py-2.5 px-3 align-middle">
                       <div className="flex flex-col gap-1 items-start">
                         {getStatusBadge(res.dia, res.horaInicial, res.horaFinal)}
-                        {hasConflict && (
+                        {hasConflict && isPriority && (
                           <span
-                            className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold font-dm-sans bg-amber-100 text-amber-950 border border-amber-300 animate-pulse whitespace-nowrap"
-                            title={`Conflito com: ${conflicts.map(c => `${c.solicitante} (${c.horaInicial}-${c.horaFinal})`).join(', ')}`}
+                            className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold font-dm-sans bg-emerald-100 text-emerald-950 border border-emerald-400 shadow-2xs whitespace-nowrap"
+                            title={`Reserva Prioritária! Entre as reuniões com horários concorrentes no mesmo dia e sala, possui o chamado GLPI mais antigo (#${res.glpi}).`}
+                          >
+                            <Star className="w-2.5 h-2.5 text-emerald-700 fill-emerald-500 shrink-0" />
+                            <span>⭐ Prioridade GLPI</span>
+                          </span>
+                        )}
+                        {hasConflict && !isPriority && (
+                          <span
+                            className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold font-dm-sans bg-amber-100 text-amber-950 border border-amber-300 whitespace-nowrap"
+                            title={`Conflito de Horário! O chamado GLPI #${conflictInfo.priorityReservation?.glpi} (${conflictInfo.priorityReservation?.solicitante}) tem prioridade de uso por ser o mais antigo.`}
                           >
                             <AlertTriangle className="w-2.5 h-2.5 text-amber-700 shrink-0" />
-                            <span>Conflito ({conflicts.length})</span>
+                            <span>⚠️ Conflito (#{conflictInfo.priorityReservation?.glpi})</span>
                           </span>
                         )}
                       </div>
@@ -333,16 +423,21 @@ export const ReservationTable: React.FC<ReservationTableProps> = ({
                     {/* SALA */}
                     <td className="py-2.5 px-3 align-middle overflow-hidden">
                       <div className="flex items-center gap-2">
-                        <div className="w-6 h-6 rounded-lg bg-slate-100 flex items-center justify-center shrink-0">
-                          <Building className="w-3.5 h-3.5 text-[#7D1416]" />
+                        <div className={`w-6 h-6 rounded-lg flex items-center justify-center shrink-0 ${hasConflict && isPriority ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-100 text-[#7D1416]'}`}>
+                          <Building className="w-3.5 h-3.5" />
                         </div>
                         <div className="min-w-0 flex-1">
-                          <div className="font-bold text-[#7D1416] font-raleway truncate text-xs sm:text-sm" title={res.sala}>
+                          <div className={`font-bold font-raleway truncate text-xs sm:text-sm ${hasConflict && isPriority ? 'text-emerald-950' : 'text-[#7D1416]'}`} title={res.sala}>
                             {res.sala}
                           </div>
-                          {hasConflict && (
-                            <span className="text-[10px] text-amber-800 font-bold block truncate" title={`Conflita com ${conflicts.map(c => c.solicitante).join(', ')}`}>
-                              ⚠️ Conflita com {conflicts.length} reserva(s)
+                          {hasConflict && isPriority && (
+                            <span className="text-[10px] text-emerald-800 font-bold block truncate" title={`Prioridade sobre ${conflicts.map(c => `${c.solicitante} (#${c.glpi})`).join(', ')}`}>
+                              ⭐ Prioritário ({conflicts.length} concorrente{conflicts.length > 1 ? 's' : ''})
+                            </span>
+                          )}
+                          {hasConflict && !isPriority && (
+                            <span className="text-[10px] text-amber-800 font-bold block truncate" title={`Precedência do chamado mais antigo GLPI #${conflictInfo.priorityReservation?.glpi} (${conflictInfo.priorityReservation?.solicitante})`}>
+                              ⚠️ Precedência GLPI #{conflictInfo.priorityReservation?.glpi}
                             </span>
                           )}
                           {res.observacoes && (
@@ -361,12 +456,24 @@ export const ReservationTable: React.FC<ReservationTableProps> = ({
                     {/* HORA INICIAL / FINAL */}
                     <td className="py-2.5 px-2.5 align-middle whitespace-nowrap">
                       <div className="flex items-center gap-1 text-[#252A34] font-mono text-xs">
-                        <Clock className="w-3.5 h-3.5 text-[#AD2F3B] shrink-0" />
-                        <span className={`font-bold px-1 py-0.5 rounded text-[11px] ${hasConflict ? 'bg-amber-100 text-amber-950 font-black' : 'bg-slate-100 text-[#252A34]'}`}>
+                        <Clock className={`w-3.5 h-3.5 shrink-0 ${hasConflict && isPriority ? 'text-emerald-700' : 'text-[#AD2F3B]'}`} />
+                        <span className={`font-bold px-1 py-0.5 rounded text-[11px] ${
+                          hasConflict && isPriority
+                            ? 'bg-emerald-100 text-emerald-950 font-black'
+                            : hasConflict && !isPriority
+                            ? 'bg-amber-100 text-amber-950 font-black'
+                            : 'bg-slate-100 text-[#252A34]'
+                        }`}>
                           {res.horaInicial}
                         </span>
                         <span className="text-slate-400 text-[10px]">às</span>
-                        <span className={`font-bold px-1 py-0.5 rounded text-[11px] ${hasConflict ? 'bg-amber-100 text-amber-950 font-black' : 'bg-slate-100 text-[#252A34]'}`}>
+                        <span className={`font-bold px-1 py-0.5 rounded text-[11px] ${
+                          hasConflict && isPriority
+                            ? 'bg-emerald-100 text-emerald-950 font-black'
+                            : hasConflict && !isPriority
+                            ? 'bg-amber-100 text-amber-950 font-black'
+                            : 'bg-slate-100 text-[#252A34]'
+                        }`}>
                           {res.horaFinal}
                         </span>
                       </div>
@@ -376,7 +483,7 @@ export const ReservationTable: React.FC<ReservationTableProps> = ({
                     <td className="py-2.5 px-3 align-middle overflow-hidden">
                       <div className="min-w-0">
                         <div className="flex items-center gap-1.5 min-w-0" title={res.solicitante}>
-                          <div className="w-5 h-5 rounded-full bg-slate-200 text-[#7D1416] flex items-center justify-center font-bold text-[10px] shrink-0">
+                          <div className={`w-5 h-5 rounded-full flex items-center justify-center font-bold text-[10px] shrink-0 ${hasConflict && isPriority ? 'bg-emerald-200 text-emerald-900' : 'bg-slate-200 text-[#7D1416]'}`}>
                             {res.solicitante.charAt(0).toUpperCase()}
                           </div>
                           <span className="font-semibold text-[#252A34] truncate text-xs sm:text-sm">
@@ -409,77 +516,96 @@ export const ReservationTable: React.FC<ReservationTableProps> = ({
                       </span>
                     </td>
 
-                    {/* GLPI (Botão Interativo em Bordô #7D1416) */}
-                    <td className="py-2.5 px-2 align-middle whitespace-nowrap">
-                      <button
-                        type="button"
-                        id={`btn-glpi-badge-${res.id}`}
-                        onClick={() => onViewDetails?.(res)}
-                        className="font-mono font-bold text-[11px] sm:text-xs bg-[#7D1416] hover:bg-[#AD2F3B] text-white px-2 py-0.5 rounded-lg border border-[#AD2F3B] inline-flex items-center gap-1 cursor-pointer transition shadow-2xs group active:scale-95"
-                        title="Clique para abrir todo o detalhamento do chamado GLPI"
-                      >
-                        <Ticket className="w-3 h-3 text-white/90 group-hover:scale-110 transition-transform" />
-                        <span>#{res.glpi}</span>
-                      </button>
-                    </td>
+                    {/* CHAMADO GLPI & AÇÕES (Botões organizados imediatamente ACIMA do número do chamado) */}
+                    <td className="py-2.5 px-3 align-middle whitespace-nowrap text-center">
+                      <div className="flex flex-col items-center justify-center gap-1.5">
+                        {/* Botões de Ação organizados imediatamente ACIMA do número do chamado */}
+                        <div className="inline-flex items-center gap-1 bg-slate-100/90 p-1 rounded-lg border border-slate-200 shadow-2xs">
+                          {/* Ver detalhamento do chamado */}
+                          <button
+                            type="button"
+                            id={`btn-detalhes-${res.id}`}
+                            onClick={() => onViewDetails?.(res)}
+                            title="Ver detalhamento do chamado"
+                            className="p-1 rounded text-slate-600 hover:text-[#7D1416] hover:bg-white transition cursor-pointer"
+                          >
+                            <Eye className="w-3.5 h-3.5" />
+                          </button>
 
-                    {/* AÇÕES */}
-                    <td className="py-2.5 px-2.5 align-middle whitespace-nowrap text-right">
-                      <div className="flex items-center justify-end gap-1">
-                        {/* View Details Button */}
-                        <button
-                          id={`btn-detalhes-${res.id}`}
-                          onClick={() => onViewDetails?.(res)}
-                          title="Ver detalhamento do chamado"
-                          className="p-1 rounded-md text-slate-500 hover:text-[#7D1416] hover:bg-slate-100 transition cursor-pointer"
-                        >
-                          <Eye className="w-3.5 h-3.5" />
-                        </button>
+                          {/* Copiar dados da empresa */}
+                          <button
+                            type="button"
+                            id={`btn-copiar-${res.id}`}
+                            onClick={() => handleCopy(res)}
+                            title="Copiar dados da empresa"
+                            className="p-1 rounded text-slate-600 hover:text-[#252A34] hover:bg-white transition cursor-pointer"
+                          >
+                            {copiedId === res.id ? (
+                              <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                            ) : (
+                              <Copy className="w-3.5 h-3.5" />
+                            )}
+                          </button>
 
-                        {/* Copy summary button */}
-                        <button
-                          id={`btn-copiar-${res.id}`}
-                          onClick={() => handleCopy(res)}
-                          title="Copiar dados da reserva"
-                          className="p-1 rounded-md text-slate-500 hover:text-[#252A34] hover:bg-slate-100 transition cursor-pointer"
-                        >
-                          {copiedId === res.id ? (
-                            <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                          {/* Editar reserva (Acesso Master) */}
+                          {canManage ? (
+                            <button
+                              type="button"
+                              id={`btn-editar-${res.id}`}
+                              onClick={() => onEdit(res)}
+                              title="Editar reserva (Acesso Master)"
+                              className="p-1 rounded text-[#252A34] hover:text-[#7D1416] hover:bg-white transition cursor-pointer"
+                            >
+                              <Edit2 className="w-3.5 h-3.5" />
+                            </button>
                           ) : (
-                            <Copy className="w-3.5 h-3.5" />
+                            <span
+                              title="Edição restrita: Apenas o Usuário Master pode alterar reservas"
+                              className="p-1 text-slate-300 cursor-not-allowed inline-flex items-center"
+                            >
+                              <Lock className="w-3.5 h-3.5 text-slate-300" />
+                            </span>
                           )}
-                        </button>
 
-                        {/* Edit Button */}
-                        {canManage ? (
-                          <button
-                            id={`btn-editar-${res.id}`}
-                            onClick={() => onEdit(res)}
-                            title="Editar reserva (Acesso Master)"
-                            className="p-1 rounded-md text-[#252A34] hover:text-[#7D1416] hover:bg-slate-100 transition cursor-pointer"
-                          >
-                            <Edit2 className="w-3.5 h-3.5" />
-                          </button>
-                        ) : (
-                          <span
-                            title="Edição restrita: Apenas o Usuário Master pode alterar reservas"
-                            className="p-1 text-slate-300 cursor-not-allowed inline-flex items-center"
-                          >
-                            <Lock className="w-3.5 h-3.5 text-slate-300" />
-                          </span>
-                        )}
+                          {/* Excluir reserva (Acesso Master) */}
+                          {canManage && (
+                            <button
+                              type="button"
+                              id={`btn-excluir-${res.id}`}
+                              onClick={() => onDelete(res)}
+                              title="Excluir reserva (Acesso Master)"
+                              className="p-1 rounded text-slate-500 hover:text-[#AD2F3B] hover:bg-rose-50 transition cursor-pointer"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          )}
+                        </div>
 
-                        {/* Delete Button */}
-                        {canManage && (
+                        {/* Número do Chamado GLPI (imediatamente abaixo dos botões) */}
+                        <div className="flex items-center gap-1 justify-center">
                           <button
-                            id={`btn-excluir-${res.id}`}
-                            onClick={() => onDelete(res)}
-                            title="Excluir reserva (Acesso Master)"
-                            className="p-1 rounded-md text-slate-400 hover:text-[#AD2F3B] hover:bg-[#AD2F3B]/10 transition cursor-pointer"
+                            type="button"
+                            id={`btn-glpi-badge-${res.id}`}
+                            onClick={() => onViewDetails?.(res)}
+                            className={`font-mono font-bold text-[11px] sm:text-xs px-2.5 py-0.5 rounded-lg border inline-flex items-center gap-1 cursor-pointer transition shadow-2xs group active:scale-95 ${
+                              hasConflict && isPriority
+                                ? 'bg-emerald-700 hover:bg-emerald-800 text-white border-emerald-500 ring-2 ring-emerald-400/40'
+                                : 'bg-[#7D1416] hover:bg-[#AD2F3B] text-white border-[#AD2F3B]'
+                            }`}
+                            title={`Clique para abrir detalhamento do chamado GLPI #${res.glpi}${hasConflict && isPriority ? ' (Prioridade 1 - Chamado mais antigo)' : ''}`}
                           >
-                            <Trash2 className="w-3.5 h-3.5" />
+                            <Ticket className="w-3 h-3 text-white/90 group-hover:scale-110 transition-transform" />
+                            <span>#{res.glpi}</span>
                           </button>
-                        )}
+                          {hasConflict && isPriority && (
+                            <span
+                              title="Chamado mais antigo do horário concorrente"
+                              className="px-1.5 py-0.5 rounded bg-emerald-600 text-white text-[9px] font-black uppercase shadow-2xs"
+                            >
+                              ⭐ TOP 1
+                            </span>
+                          )}
+                        </div>
                       </div>
                     </td>
                   </tr>

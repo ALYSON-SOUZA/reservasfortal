@@ -82,7 +82,7 @@ export const authService = {
 
     if (isMaster) {
       if (!password || password !== MASTER_PASSWORD) {
-        throw new Error('Senha Master incorreta. Verifique suas credenciais de administrador (@mouraS0501).');
+        throw new Error('Senha Master incorreta. Verifique suas credenciais de administrador.');
       }
     }
 

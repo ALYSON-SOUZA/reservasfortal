@@ -5,6 +5,7 @@ import {
   formatDateTimeBR,
   getReservationStatus,
   getConflictingReservations,
+  getConflictPriorityInfo,
 } from '../utils/dateUtils';
 import { canEditOrDelete } from '../utils/rbac';
 import {
@@ -23,6 +24,7 @@ import {
   Users,
   ShieldCheck,
   Lock,
+  Star,
 } from 'lucide-react';
 
 interface ReservationDetailModalProps {
@@ -53,8 +55,10 @@ export const ReservationDetailModal: React.FC<ReservationDetailModalProps> = ({
   if (!isOpen || !reservation) return null;
 
   const numeroGlpi = (reservation.glpi || '').replace('#', '').trim();
-  const conflicts = getConflictingReservations(reservation, allReservations);
-  const hasConflict = conflicts.length > 0;
+  const conflictInfo = getConflictPriorityInfo(reservation, allReservations);
+  const hasConflict = conflictInfo.hasConflict;
+  const isPriority = conflictInfo.isPriority;
+  const conflicts = conflictInfo.conflicts;
   const status = getReservationStatus(reservation.dia, reservation.horaInicial, reservation.horaFinal);
 
   // Busca detalhes adicionais da sala (capacidade, filial, recursos)
@@ -208,6 +212,20 @@ export const ReservationDetailModal: React.FC<ReservationDetailModalProps> = ({
 
             {/* Badge de Status */}
             {renderStatusBadge()}
+
+            {/* Marcador de Prioridade GLPI Mais Antigo */}
+            {hasConflict && isPriority && (
+              <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-xl text-xs font-bold font-dm-sans bg-emerald-500/20 text-emerald-200 border border-emerald-400/40 shadow-xs">
+                <Star className="w-3.5 h-3.5 text-emerald-300 fill-emerald-300" />
+                <span>Chamado Prioritário (Mais Antigo)</span>
+              </span>
+            )}
+            {hasConflict && !isPriority && (
+              <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-xl text-xs font-bold font-dm-sans bg-amber-500/20 text-amber-200 border border-amber-400/40 shadow-xs">
+                <AlertTriangle className="w-3.5 h-3.5 text-amber-300" />
+                <span>Conflito (Precedência #{conflictInfo.priorityReservation?.glpi})</span>
+              </span>
+            )}
           </div>
 
           <h2 className="text-xl sm:text-2xl font-bold font-raleway text-white tracking-wide flex items-center gap-2">
@@ -220,31 +238,91 @@ export const ReservationDetailModal: React.FC<ReservationDetailModalProps> = ({
 
         {/* Corpo dos Detalhes */}
         <div className="p-5 sm:p-6 space-y-4 max-h-[75vh] overflow-y-auto font-dm-sans">
-          {/* Alerta de Conflito de Horário */}
-          {hasConflict && (
-            <div className="p-3.5 bg-amber-50 border-2 border-amber-300 rounded-2xl text-amber-950 flex items-start gap-3 shadow-xs">
-              <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
-              <div className="text-xs">
-                <strong className="text-sm font-bold font-raleway text-amber-900 block mb-0.5">
-                  Atenção: Sobreposição de Horário Detectada!
-                </strong>
-                <p className="text-amber-900 font-medium mb-1.5">
-                  Esta reunião possui conflito de horário com {conflicts.length} outro(s) agendamento(s) na mesma sala:
+          {/* Alerta de Conflito de Horário com Regra de Antiguidade */}
+          {hasConflict && isPriority && (
+            <div className="p-4 bg-emerald-50 border-2 border-emerald-400 rounded-2xl text-emerald-950 flex items-start gap-3 shadow-sm">
+              <div className="w-8 h-8 rounded-xl bg-emerald-600 text-white flex items-center justify-center shrink-0 shadow-xs mt-0.5">
+                <Star className="w-4 h-4 text-white fill-white" />
+              </div>
+              <div className="text-xs flex-1">
+                <div className="flex items-center gap-2 mb-1 flex-wrap">
+                  <strong className="text-sm font-bold font-raleway text-emerald-900">
+                    ⭐ Chamado Prioritário por Antiguidade (Regra Oficial GLPI)
+                  </strong>
+                  <span className="px-2 py-0.5 rounded-full bg-emerald-600 text-white text-[10px] font-black uppercase tracking-wider">
+                    Prioridade 1
+                  </span>
+                </div>
+                <p className="text-emerald-900 font-medium leading-relaxed">
+                  Esta reunião concorre com outro(s) agendamento(s) para a <strong>{reservation.sala}</strong>, porém detém a <strong>prioridade oficial</strong> de ocupação por possuir o chamado GLPI mais antigo (menor número de chamado: <strong>#{reservation.glpi}</strong>).
                 </p>
-                <div className="space-y-1">
+                <div className="space-y-1.5 mt-2.5 pt-2 border-t border-emerald-200">
+                  <span className="text-[11px] font-bold text-emerald-800 uppercase tracking-wide block">
+                    Agendamentos concorrentes posteriores ({conflicts.length}):
+                  </span>
                   {conflicts.map((c) => (
                     <div
                       key={c.id}
-                      className="bg-white/80 p-2 rounded-xl border border-amber-200 flex items-center justify-between text-xs font-semibold"
+                      className="bg-white/90 p-2 rounded-xl border border-emerald-200 flex items-center justify-between text-xs font-semibold text-emerald-950"
                     >
-                      <span>
-                        • {c.solicitante} ({c.setor})
-                      </span>
-                      <span className="font-mono font-bold text-amber-900">
+                      <span>• {c.solicitante} ({c.setor})</span>
+                      <span className="font-mono text-emerald-800 font-bold">
                         {c.horaInicial} às {c.horaFinal} | GLPI #{c.glpi}
                       </span>
                     </div>
                   ))}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {hasConflict && !isPriority && (
+            <div className="p-4 bg-amber-50 border-2 border-amber-300 rounded-2xl text-amber-950 flex items-start gap-3 shadow-sm">
+              <div className="w-8 h-8 rounded-xl bg-amber-600 text-white flex items-center justify-center shrink-0 shadow-xs mt-0.5">
+                <AlertTriangle className="w-4 h-4 text-white" />
+              </div>
+              <div className="text-xs flex-1">
+                <div className="flex items-center gap-2 mb-1 flex-wrap">
+                  <strong className="text-sm font-bold font-raleway text-amber-900">
+                    ⚠️ Conflito de Horário (Chamado Concorrente Posterior)
+                  </strong>
+                  <span className="px-2 py-0.5 rounded-full bg-amber-600 text-white text-[10px] font-black uppercase tracking-wider">
+                    Secundário
+                  </span>
+                </div>
+                <p className="text-amber-900 font-medium leading-relaxed">
+                  Esta reunião possui sobreposição de horários na <strong>{reservation.sala}</strong> com o chamado mais antigo <strong>GLPI #{conflictInfo.priorityReservation?.glpi} ({conflictInfo.priorityReservation?.solicitante})</strong>, que possui prioridade de ocupação no espaço.
+                </p>
+                <div className="space-y-1.5 mt-2.5 pt-2 border-t border-amber-200">
+                  <span className="text-[11px] font-bold text-amber-800 uppercase tracking-wide block">
+                    Agendamento prioritário e concorrentes:
+                  </span>
+                  {conflicts.map((c) => {
+                    const isPrioritary = c.id === conflictInfo.priorityReservation?.id;
+                    return (
+                      <div
+                        key={c.id}
+                        className={`p-2 rounded-xl border flex items-center justify-between text-xs font-semibold ${
+                          isPrioritary
+                            ? 'bg-emerald-50 border-emerald-300 text-emerald-950 font-bold'
+                            : 'bg-white/90 border-amber-200 text-amber-950'
+                        }`}
+                      >
+                        <span className="flex items-center gap-1.5">
+                          {isPrioritary && <Star className="w-3 h-3 text-emerald-600 fill-emerald-500 shrink-0" />}
+                          <span>• {c.solicitante} ({c.setor})</span>
+                          {isPrioritary && (
+                            <span className="text-[9px] bg-emerald-600 text-white px-1.5 py-0.2 rounded font-black uppercase">
+                              Prioritário
+                            </span>
+                          )}
+                        </span>
+                        <span className="font-mono">
+                          {c.horaInicial} às {c.horaFinal} | GLPI #{c.glpi}
+                        </span>
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
             </div>

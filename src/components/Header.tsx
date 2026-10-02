@@ -54,6 +54,8 @@ export const Header: React.FC<HeaderProps> = ({
   onOpenAnalyticsModal,
   onOpenSectorManagerModal,
   onOpenRoomManagerModal,
+  onOpenSupabaseModal,
+  isSupabaseLive,
   filters,
   currentUser,
   onLogout,
@@ -250,6 +252,28 @@ export const Header: React.FC<HeaderProps> = ({
               <Printer className="w-3.5 h-3.5 text-[#EAEAEA]" />
               <span className="hidden sm:inline">Relatório</span>
             </button>
+
+            {/* Status e Acesso Nuvem Supabase */}
+            {onOpenSupabaseModal && (
+              <button
+                type="button"
+                id="btn-supabase-status-header"
+                onClick={onOpenSupabaseModal}
+                title={
+                  isSupabaseLive
+                    ? 'Nuvem Supabase Ativa: Suas reservas estão salvas na nuvem e acessíveis de qualquer computador, tablet ou celular.'
+                    : 'Modo Local: Clique para abrir o painel de sincronização com o banco Supabase.'
+                }
+                className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl border text-xs font-semibold font-dm-sans transition shadow-xs active:scale-95 cursor-pointer ${
+                  isSupabaseLive
+                    ? 'bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-200 border-emerald-400/40'
+                    : 'bg-amber-500/20 hover:bg-amber-500/30 text-amber-200 border-amber-400/40'
+                }`}
+              >
+                <span className={`w-2 h-2 rounded-full ${isSupabaseLive ? 'bg-emerald-400 animate-pulse' : 'bg-amber-400'}`} />
+                <span className="hidden sm:inline">{isSupabaseLive ? 'Nuvem OK' : 'Sincronizar'}</span>
+              </button>
+            )}
 
             {/* Botão de Como Usar & Tira-Dúvidas IA */}
             <button

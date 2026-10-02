@@ -1,5 +1,5 @@
 import { Reservation } from '../types';
-import { formatDateBR } from './dateUtils';
+import { formatDateBR, getConflictPriorityInfo } from './dateUtils';
 
 /**
  * Generates and triggers a formatted PDF / Print View for reservations
@@ -178,15 +178,29 @@ export const exportReservationsToPDF = (
     <tbody>
       ${sorted
         .map((r) => {
+          const conflictInfo = getConflictPriorityInfo(r, reservations);
+          let statusBadge = '<span style="display:inline-block; padding:2px 6px; background:#EAEAEA; color:#7D1416; font-weight:700; border-radius:4px; font-size:10px;">Confirmada</span>';
+          let rowBg = '';
+
+          if (conflictInfo.hasConflict) {
+            if (conflictInfo.isPriority) {
+              statusBadge = '<span style="display:inline-block; padding:2px 6px; background:#D1FAE5; color:#065F46; font-weight:800; border-radius:4px; font-size:10px; border:1px solid #10B981;">⭐ Prioridade GLPI</span>';
+              rowBg = 'background-color: #F0FDF4;';
+            } else {
+              statusBadge = `<span style="display:inline-block; padding:2px 6px; background:#FEF3C7; color:#92400E; font-weight:700; border-radius:4px; font-size:10px; border:1px solid #F59E0B;">⚠️ Conflito (#${conflictInfo.priorityReservation?.glpi})</span>`;
+              rowBg = 'background-color: #FFFBEB;';
+            }
+          }
+
           return `
-        <tr>
+        <tr style="${rowBg}">
           <td><strong>${formatDateBR(r.dia)}</strong></td>
           <td class="time-tag">${r.horaInicial} - ${r.horaFinal}</td>
           <td><strong style="color: #7D1416;">${r.sala}</strong></td>
           <td>${r.solicitante}</td>
           <td>${r.setor}</td>
           <td class="glpi-tag">#${r.glpi}</td>
-          <td><span style="display:inline-block; padding:2px 6px; background:#EAEAEA; color:#7D1416; font-weight:700; border-radius:4px; font-size:10px;">Confirmada</span></td>
+          <td>${statusBadge}</td>
         </tr>
       `;
         })

@@ -68,12 +68,20 @@ export default function App() {
       setIsSupabaseLive(resResult.isSupabase);
       setRooms(roomsResult.data);
       setSectors(sectorsResult.data);
+
+      if (resResult.syncedCount && resResult.syncedCount > 0) {
+        addToast(
+          'success',
+          `☁️ ${resResult.syncedCount} reserva(s) deste computador foram sincronizadas com o banco Supabase na nuvem! Agora estão disponíveis em qualquer celular, computador ou aplicativo.`,
+          'Sincronização em Nuvem Concluída'
+        );
+      }
     } catch (err) {
       console.error('Erro ao carregar dados:', err);
     } finally {
       setIsLoading(false);
     }
-  }, []);
+  }, [addToast]);
 
   // Inicialização e Inscrição em Tempo Real (Supabase Realtime)
   useEffect(() => {
@@ -526,6 +534,8 @@ export default function App() {
         onOpenAnalyticsModal={() => setIsAnalyticsModalOpen(true)}
         onOpenSectorManagerModal={() => setIsSectorManagerModalOpen(true)}
         onOpenRoomManagerModal={() => setIsRoomManagerModalOpen(true)}
+        onOpenSupabaseModal={() => setIsSupabaseModalOpen(true)}
+        isSupabaseLive={isSupabaseLive}
         filters={filters}
         nextCount={nextReservationsCount}
       />
