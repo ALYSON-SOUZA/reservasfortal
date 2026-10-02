@@ -1,0 +1,6 @@
+{
+  "name": "Reserva de Salas Fortaleza",
+  "description": "Sistema moderno de gestão e controle de reservas de salas da Bellinati Perez com CRUD completo de salas em Supabase, preenchimento inteligente via IA (OCR de imagem e texto), filtros avançados por período e sincronização em tempo real.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
