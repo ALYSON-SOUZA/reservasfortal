@@ -2,7 +2,16 @@ import { supabase, isSupabaseConfigured, toAppReservation, toDbReservation, DbRe
 import { Reservation } from '../types';
 import { getInitialReservations } from '../utils/mockData';
 
-const LOCAL_STORAGE_KEY = 'reservas_salas_fortaleza_v1';
+const LOCAL_STORAGE_KEY = 'reservas_salas_fortaleza_v2';
+
+// Purga cache antigo do navegador para garantir sincronismo limpo com a nuvem
+try {
+  if (typeof window !== 'undefined' && window.localStorage) {
+    window.localStorage.removeItem('reservas_salas_fortaleza_v1');
+  }
+} catch (e) {
+  // ignore
+}
 
 const LEGACY_ROOM_MAP: Record<string, string> = {
   'Sala 01 - Reunião Diretoria (Aldeota)': 'Sala 215 - Auditório',
@@ -35,9 +44,9 @@ const LEGACY_SETOR_MAP: Record<string, string> = {
 export function getLocalReservations(): Reservation[] {
   try {
     const saved = localStorage.getItem(LOCAL_STORAGE_KEY);
-    if (saved) {
+    if (saved !== null) {
       const parsed: Reservation[] = JSON.parse(saved);
-      if (Array.isArray(parsed) && parsed.length > 0) {
+      if (Array.isArray(parsed)) {
         let changed = false;
         const normalized = parsed.map((res) => {
           let updatedSala = res.sala;
@@ -112,8 +121,11 @@ export const reservationService = {
 
       const cloudFpSet = new Set(cloudReservations.map(getFp));
 
-      // Reservas locais que ainda NÃO constam no Supabase
-      const unsyncedLocal = local.filter((localRes) => !cloudFpSet.has(getFp(localRes)));
+      const todayStr = new Date().toISOString().split('T')[0];
+      // Reservas locais que ainda NÃO constam no Supabase (apenas de hoje em diante para não ressuscitar registros antigos limpos)
+      const unsyncedLocal = local.filter(
+        (localRes) => !cloudFpSet.has(getFp(localRes)) && (localRes.dia || '') >= todayStr
+      );
 
       if (unsyncedLocal.length === 0) {
         // Todas já estão na nuvem: atualiza o cache local
@@ -222,31 +234,8 @@ export const reservationService = {
       }
 
       const cloudReservations = (data || []).map((row: DbReservation) => toAppReservation(row));
-      const localReservations = getLocalReservations();
-
-      // Fingerprint para verificação
-      const getFp = (r: { dia: string; sala: string; horaInicial: string; horaFinal: string; glpi: string; solicitante: string }) =>
-        `${r.dia?.trim()}|${r.sala?.trim()}|${r.horaInicial?.trim()}|${r.horaFinal?.trim()}|${(r.glpi || '').replace('#', '').trim()}|${(r.solicitante || '').trim().toLowerCase()}`;
-
-      const cloudFpSet = new Set(cloudReservations.map(getFp));
-      const unsyncedLocal = localReservations.filter((r) => !cloudFpSet.has(getFp(r)));
-
-      // AUTO-SYNC: Se houver reservas locais que ainda não estão no Supabase, sincroniza agora!
-      if (unsyncedLocal.length > 0) {
-        console.log(`⚡ Sincronizando automaticamente ${unsyncedLocal.length} reservas locais com a nuvem Supabase...`);
-        const syncResult = await reservationService.syncLocalToCloud();
-        if (syncResult.data && syncResult.data.length > 0) {
-          return { data: syncResult.data, isSupabase: true, syncedCount: syncResult.syncedCount };
-        }
-      }
-
-      if (cloudReservations.length > 0) {
-        saveLocalReservations(cloudReservations);
-        return { data: cloudReservations, isSupabase: true };
-      } else {
-        // Se nuvem estiver vazia e também não houver locais pendentes
-        return { data: [], isSupabase: true };
-      }
+      saveLocalReservations(cloudReservations);
+      return { data: cloudReservations, isSupabase: true };
     } catch (err: any) {
       console.error('Falha de conexão com o Supabase:', err);
       return { data: getLocalReservations(), isSupabase: false, error: err.message };

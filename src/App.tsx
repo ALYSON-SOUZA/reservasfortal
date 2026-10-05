@@ -100,10 +100,36 @@ export default function App() {
       setorService.getAll({ apenasAtivos: false }).then((res) => setSectors(res.data));
     });
 
+    // Sincronização periódica e revalidação ao focar na janela / celular
+    const handleVisibilityOrFocus = () => {
+      if (document.visibilityState === 'visible') {
+        reservationService.getAll().then((res) => {
+          setReservations(res.data);
+          setIsSupabaseLive(res.isSupabase);
+        });
+      }
+    };
+
+    window.addEventListener('visibilitychange', handleVisibilityOrFocus);
+    window.addEventListener('focus', handleVisibilityOrFocus);
+
+    // Polling contínuo para garantir sincronismo perfeito entre computadores e celulares
+    const pollInterval = setInterval(() => {
+      if (document.visibilityState === 'visible') {
+        reservationService.getAll().then((res) => {
+          setReservations(res.data);
+          setIsSupabaseLive(res.isSupabase);
+        });
+      }
+    }, 15000);
+
     return () => {
       unsubscribeReservations();
       unsubscribeRooms();
       unsubscribeSectors();
+      window.removeEventListener('visibilitychange', handleVisibilityOrFocus);
+      window.removeEventListener('focus', handleVisibilityOrFocus);
+      clearInterval(pollInterval);
     };
   }, [loadData]);
 
@@ -578,6 +604,7 @@ export default function App() {
         ) : (
           <ReservationTable
             reservations={filteredReservations}
+            allReservations={reservations}
             currentUser={currentUser}
             onEdit={handleOpenEditModal}
             onDelete={handleOpenDeleteModal}
