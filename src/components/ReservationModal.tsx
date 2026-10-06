@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { Reservation, Sala, Setor, AppUser } from '../types';
 import { DEFAULT_SALAS, DEFAULT_SETORES } from '../utils/mockData';
 import { getTodayString, hasTimeConflict, formatDateBR, formatDateTimeBR, parseGlpiNumber } from '../utils/dateUtils';
@@ -76,6 +76,7 @@ export const ReservationModal: React.FC<ReservationModalProps> = ({
   const [glpi, setGlpi] = useState('');
   const [observacoes, setObservacoes] = useState('');
   const [error, setError] = useState<string | null>(null);
+  const formRef = useRef<HTMLFormElement>(null);
 
   // Carregar salas e setores
   const loadSalasAndSetores = async () => {
@@ -253,6 +254,7 @@ export const ReservationModal: React.FC<ReservationModalProps> = ({
       setError(
         `Conflito de horário detectado! A ${finalSala} já está ocupada por ${realTimeConflict.solicitante} (${realTimeConflict.horaInicial} às ${realTimeConflict.horaFinal}) no dia ${formatDateBR(dia)} (GLPI #${realTimeConflict.glpi}). Marque a opção de confirmação abaixo se desejar cadastrar mesmo com sobreposição.`
       );
+      formRef.current?.scrollTo({ top: 0, behavior: 'smooth' });
       return;
     }
 
@@ -276,19 +278,19 @@ export const ReservationModal: React.FC<ReservationModalProps> = ({
 
   return (
     <>
-      <div className="fixed inset-0 z-50 overflow-y-auto bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 font-dm-sans">
-        <div className="bg-white rounded-3xl shadow-2xl border border-slate-200 w-full max-w-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-200">
+      <div className="fixed inset-0 z-50 overflow-y-auto bg-black/60 backdrop-blur-xs flex items-center justify-center p-2 sm:p-4 font-dm-sans">
+        <div className="bg-white rounded-2xl sm:rounded-3xl shadow-2xl border border-slate-200 w-full max-w-2xl max-h-[92vh] flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-200">
           {/* Modal Header em Bordô #7D1416 (Brandbook Bellinati Perez) */}
-          <div className="bg-[#7D1416] text-white px-6 py-4 flex items-center justify-between border-b-2 border-[#AD2F3B]">
+          <div className="shrink-0 bg-[#7D1416] text-white px-5 sm:px-6 py-3.5 sm:py-4 flex items-center justify-between border-b-2 border-[#AD2F3B]">
             <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-xl bg-white/10 border border-white/20 flex items-center justify-center text-white font-bold shadow-md">
+              <div className="w-10 h-10 rounded-xl bg-white/10 border border-white/20 flex items-center justify-center text-white font-bold shadow-md shrink-0">
                 <Calendar className="w-5 h-5" />
               </div>
               <div>
-                <h2 className="text-xl font-bold font-raleway leading-tight text-white">
+                <h2 className="text-lg sm:text-xl font-bold font-raleway leading-tight text-white">
                   {editingReservation ? 'Editar Reserva de Sala' : 'Nova Reserva de Sala — Bellinati Perez'}
                 </h2>
-                <p className="text-xs text-[#EAEAEA]/80 font-dm-sans font-medium">
+                <p className="text-[11px] sm:text-xs text-[#EAEAEA]/80 font-dm-sans font-medium">
                   Preencha os campos obrigatórios e vincule o chamado GLPI
                 </p>
               </div>
@@ -303,7 +305,7 @@ export const ReservationModal: React.FC<ReservationModalProps> = ({
           </div>
 
           {/* Modal Body / Form */}
-          <form onSubmit={handleSubmit} className="p-6 space-y-4 max-h-[80vh] overflow-y-auto font-dm-sans">
+          <form ref={formRef} onSubmit={handleSubmit} className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-4 font-dm-sans">
             {/* Banner de Auditoria de Modificação */}
             {editingReservation && (
               <div className="p-3 bg-slate-50 border border-slate-200 rounded-2xl flex flex-col sm:flex-row sm:items-center justify-between gap-1.5 text-xs text-slate-600 font-dm-sans">
@@ -667,8 +669,8 @@ export const ReservationModal: React.FC<ReservationModalProps> = ({
               />
             </div>
 
-            {/* Footer Buttons */}
-            <div className="pt-4 border-t border-slate-200 flex items-center justify-end gap-3">
+            {/* Footer Buttons: Fixo na parte inferior para garantir visibilidade e acesso no celular */}
+            <div className="shrink-0 pt-3 pb-1 border-t border-slate-200 flex items-center justify-end gap-3 sticky bottom-0 bg-white/95 backdrop-blur-xs z-10">
               <button
                 id="btn-cancelar-modal"
                 type="button"
@@ -681,12 +683,7 @@ export const ReservationModal: React.FC<ReservationModalProps> = ({
               <button
                 id="btn-salvar-reserva"
                 type="submit"
-                disabled={Boolean(realTimeConflict && !allowConflict)}
-                className={`inline-flex items-center gap-2 px-6 py-2.5 rounded-xl text-white text-sm font-bold font-raleway tracking-wide transition shadow-lg active:scale-95 ${
-                  realTimeConflict && !allowConflict
-                    ? 'bg-slate-400 cursor-not-allowed shadow-none'
-                    : 'bg-[#FF2E63] hover:bg-[#AD2F3B] shadow-[#FF2E63]/30 cursor-pointer'
-                }`}
+                className="inline-flex items-center gap-2 px-6 py-2.5 rounded-xl text-white text-sm font-bold font-raleway tracking-wide transition shadow-lg active:scale-95 bg-[#FF2E63] hover:bg-[#AD2F3B] shadow-[#FF2E63]/30 cursor-pointer"
               >
                 <CheckCircle className="w-4 h-4" />
                 <span>

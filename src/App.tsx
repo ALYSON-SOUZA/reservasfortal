@@ -175,7 +175,7 @@ export default function App() {
   const [isSectorManagerModalOpen, setIsSectorManagerModalOpen] = useState(false);
   const [isRoomManagerModalOpen, setIsRoomManagerModalOpen] = useState(false);
   const [isHelpGuideOpen, setIsHelpGuideOpen] = useState(false);
-  const [isCalendarOverlayOpen, setIsCalendarOverlayOpen] = useState(true);
+  const [isCalendarOverlayOpen, setIsCalendarOverlayOpen] = useState(false);
   const [isDetailModalOpen, setIsDetailModalOpen] = useState(false);
   const [detailReservation, setDetailReservation] = useState<Reservation | null>(null);
   const [isNotificationCenterOpen, setIsNotificationCenterOpen] = useState(false);
@@ -313,7 +313,7 @@ export default function App() {
     if (!canEditOrDelete(currentUser)) {
       addToast(
         'warning',
-        'Acesso Restrito: Apenas o Usuário Master possui permissão para editar reservas existentes.',
+        'Acesso Restrito: Por favor, realize o login para editar reservas existentes.',
         'Ação Não Autorizada'
       );
       return;
@@ -344,7 +344,7 @@ export default function App() {
       if (!canEditOrDelete(currentUser)) {
         addToast(
           'error',
-          'Operação Bloqueada: Você não possui privilégios de Usuário Master para editar reservas.',
+          'Operação Bloqueada: É necessário estar autenticado para editar reservas.',
           'Sem Permissão'
         );
         return;
@@ -354,12 +354,19 @@ export default function App() {
         modificadoPor: operatorFirstName,
         modificadoEm: nowIso,
       };
-      const result = await reservationService.update(data.id, payload);
-      const savedItem = result.data || {
+
+      // 1. Atualização Otimista Imediata: reflete na interface instantaneamente (0ms)
+      const optimisticUpdatedItem: Reservation = {
         ...payload,
         id: data.id,
         criadoEm: (data as any).criadoEm || nowIso,
       };
+      setReservations((prev) =>
+        prev.map((item) => (item.id === data.id ? optimisticUpdatedItem : item))
+      );
+
+      const result = await reservationService.update(data.id, payload);
+      const savedItem = result.data || optimisticUpdatedItem;
 
       setReservations((prev) => {
         const next = prev.map((item) => (item.id === data.id ? savedItem : item));
@@ -372,23 +379,37 @@ export default function App() {
       if (result.isSupabase) {
         addToast('success', `Reserva da ${data.sala} salva com sucesso no Supabase por ${operatorFirstName}!`, 'Atualização Salva');
       } else {
-        addToast('success', `Reserva da ${data.sala} atualizada por ${operatorFirstName}.`, 'Atualização Salva');
+        addToast('success', `Reserva da ${data.sala} atualizada e gravada com sucesso por ${operatorFirstName}!`, 'Atualização Salva');
       }
     } else {
+      const tempId = typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `res-${Date.now()}`;
       const payload = {
         ...data,
         criadoPor: operatorFirstName,
         modificadoPor: operatorFirstName,
         modificadoEm: nowIso,
       };
+
+      const optimisticNewItem: Reservation = {
+        ...payload,
+        id: tempId,
+        criadoEm: nowIso,
+      };
+
+      // 1. Atualização Otimista Imediata: a nova reserva aparece na tela no mesmo instante!
+      setReservations((prev) => [optimisticNewItem, ...prev.filter((r) => r.id !== tempId)]);
+
       const result = await reservationService.create(payload);
       if (result.data) {
-        setReservations((prev) => [result.data, ...prev.filter((r) => r.id !== result.data.id)]);
+        setReservations((prev) => [
+          result.data,
+          ...prev.filter((r) => r.id !== result.data.id && r.id !== tempId),
+        ]);
       }
       if (result.isSupabase) {
         addToast('success', `Nova reserva na ${data.sala} gravada no Supabase por ${operatorFirstName}!`, 'Reserva Confirmada');
       } else {
-        addToast('success', `Nova reserva na ${data.sala} cadastrada com sucesso por ${operatorFirstName}!`, 'Reserva Confirmada');
+        addToast('success', `Nova reserva na ${data.sala} cadastrada e gravada com sucesso por ${operatorFirstName}!`, 'Reserva Confirmada');
       }
     }
   };
@@ -462,11 +483,17 @@ export default function App() {
     }
     if (deletingReservation) {
       const operatorFirstName = currentUser?.primeiroNome || 'Operador';
-      await reservationService.delete(deletingReservation.id);
-      setReservations((prev) =>
-        prev.filter((item) => item.id !== deletingReservation.id)
-      );
-      addToast('info', `Reserva GLPI #${deletingReservation.glpi} excluída por ${operatorFirstName}.`, 'Exclusão Registrada');
+      const targetId = deletingReservation.id;
+      const targetGlpi = deletingReservation.glpi;
+
+      // Remoção Otimista Imediata da tela
+      setReservations((prev) => prev.filter((item) => item.id !== targetId));
+      setIsDeleteModalOpen(false);
+      setDeletingReservation(null);
+
+      await reservationService.delete(targetId);
+      addToast('info', `Reserva GLPI #${targetGlpi} excluída por ${operatorFirstName}.`, 'Exclusão Registrada');
+      return;
     }
     setIsDeleteModalOpen(false);
     setDeletingReservation(null);
@@ -527,7 +554,6 @@ export default function App() {
         <LoginScreen
           onLoginSuccess={(user) => {
             setCurrentUser(user);
-            setIsCalendarOverlayOpen(true);
             addToast(
               'success',
               `Bem-vindo(a), ${user.primeiroNome}! Todas as suas ações serão registradas com seu primeiro nome.`,

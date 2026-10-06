@@ -26,6 +26,22 @@ export const supabase: SupabaseClient | null = isSupabaseConfigured
       auth: {
         persistSession: false,
       },
+      global: {
+        fetch: (url: any, options: any = {}) => {
+          // Timeout de 3500ms para evitar bloqueios ou travamentos em celulares ou conexões lentas
+          const controller = new AbortController();
+          const timeoutId = setTimeout(() => {
+            controller.abort();
+          }, 3500);
+
+          return fetch(url, {
+            ...options,
+            signal: options?.signal || controller.signal,
+          }).finally(() => {
+            clearTimeout(timeoutId);
+          });
+        },
+      },
       realtime: {
         params: {
           eventsPerSecond: 10,

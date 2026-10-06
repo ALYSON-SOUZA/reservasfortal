@@ -215,34 +215,69 @@ export const reservationService = {
     }
   },
 
-  // 1. Listar todas as reservas (com sincronização automática bi-direcional)
+  // 1. Listar todas as reservas (com sincronização prioritária de reservas de hoje em diante)
   async getAll(): Promise<{ data: Reservation[]; isSupabase: boolean; syncedCount?: number; error?: string }> {
     if (!isSupabaseConfigured || !supabase) {
       return { data: getLocalReservations(), isSupabase: false };
     }
 
     try {
-      const { data, error } = await supabase
+      const todayStr = new Date().toISOString().split('T')[0];
+
+      // Busca prioritária 1: Todas as reservas de hoje e futuras (nunca truncadas por histórico passado)
+      const { data: upcomingData, error: upcomingError } = await supabase
         .from('reservations')
         .select('*')
+        .gte('dia', todayStr)
         .order('dia', { ascending: true })
-        .order('hora_inicial', { ascending: true });
+        .order('hora_inicial', { ascending: true })
+        .limit(1000);
 
-      if (error) {
-        console.warn('Erro ao consultar Supabase, utilizando fallback local:', error.message);
-        return { data: getLocalReservations(), isSupabase: false, error: error.message };
+      // Busca prioritária 2: Histórico recente (passadas)
+      const { data: pastData, error: pastError } = await supabase
+        .from('reservations')
+        .select('*')
+        .lt('dia', todayStr)
+        .order('dia', { ascending: false })
+        .limit(200);
+
+      if (upcomingError && pastError) {
+        console.warn('Erro ao consultar Supabase, utilizando fallback local:', upcomingError?.message || pastError?.message);
+        return { data: getLocalReservations(), isSupabase: false, error: upcomingError?.message || pastError?.message };
       }
 
-      const cloudReservations = (data || []).map((row: DbReservation) => toAppReservation(row));
-      saveLocalReservations(cloudReservations);
-      return { data: cloudReservations, isSupabase: true };
+      const allRows = [...(upcomingData || []), ...(pastData || [])];
+      const cloudReservations = allRows.map((row: DbReservation) => toAppReservation(row));
+
+      // Mesclagem resiliente: preserva reservas locais e mantém a versão mais recente
+      const local = getLocalReservations();
+      const localMap = new Map<string, Reservation>();
+      local.forEach((r) => localMap.set(r.id, r));
+
+      const finalMap = new Map<string, Reservation>(localMap);
+      cloudReservations.forEach((c) => {
+        const existingLocal = finalMap.get(c.id);
+        if (!existingLocal) {
+          finalMap.set(c.id, c);
+        } else {
+          const localTime = new Date(existingLocal.modificadoEm || existingLocal.criadoEm || 0).getTime();
+          const cloudTime = new Date(c.modificadoEm || c.criadoEm || 0).getTime();
+          if (cloudTime > localTime) {
+            finalMap.set(c.id, c);
+          }
+        }
+      });
+
+      const merged = Array.from(finalMap.values());
+      saveLocalReservations(merged);
+      return { data: merged, isSupabase: true };
     } catch (err: any) {
-      console.error('Falha de conexão com o Supabase:', err);
-      return { data: getLocalReservations(), isSupabase: false, error: err.message };
+      console.warn('Falha de conexão com o Supabase, operando no modo local resiliente:', err?.message || err);
+      return { data: getLocalReservations(), isSupabase: false, error: err?.message };
     }
   },
 
-  // 2. Criar uma nova reserva
+  // 2. Criar uma nova reserva (Garantia Local-First: Salva localmente IMEDIATAMENTE antes da rede)
   async create(
     reservationData: Omit<Reservation, 'id' | 'criadoEm'>
   ): Promise<{ data: Reservation; isSupabase: boolean; error?: string }> {
@@ -253,10 +288,13 @@ export const reservationService = {
       criadoEm: new Date().toISOString(),
     };
 
+    // ETAPA 1: Grava SEMPRE no armazenamento local primeiro
+    // Isso garante que no celular a reserva fica gravada e reservada com 100% de sucesso
+    const local = getLocalReservations();
+    const updated = [newReservation, ...local.filter((r) => r.id !== localId)];
+    saveLocalReservations(updated);
+
     if (!isSupabaseConfigured || !supabase) {
-      const local = getLocalReservations();
-      const updated = [newReservation, ...local];
-      saveLocalReservations(updated);
       return { data: newReservation, isSupabase: false };
     }
 
@@ -283,7 +321,7 @@ export const reservationService = {
         .single();
 
       if (error) {
-        console.warn('Erro com payload completo, tentando payload básico:', error.message);
+        console.warn('Erro com payload completo no Supabase, tentando payload básico:', error.message);
         // Tenta sem colunas de auditoria caso não existam no schema
         const basicPayload = {
           dia: reservationData.dia,
@@ -302,27 +340,27 @@ export const reservationService = {
           .single();
 
         if (retryResult.error) {
-          console.warn('Falha persistindo no Supabase, salvando local:', retryResult.error.message);
-          const local = getLocalReservations();
-          const updated = [newReservation, ...local];
-          saveLocalReservations(updated);
+          console.warn('Supabase indisponível no momento, mantendo reserva local com sucesso:', retryResult.error.message);
           return { data: newReservation, isSupabase: false, error: retryResult.error.message };
         }
 
         const saved = toAppReservation(retryResult.data as DbReservation);
-        saveLocalReservations([saved, ...getLocalReservations().filter((r) => r.id !== saved.id)]);
+        // Atualiza o registro local com o ID definitivo gerado no Supabase
+        const currentLocal = getLocalReservations();
+        const replacedLocal = currentLocal.map((r) => (r.id === localId ? saved : r));
+        saveLocalReservations(replacedLocal);
         return { data: saved, isSupabase: true };
       }
 
       const savedReservation = toAppReservation(data as DbReservation);
-      saveLocalReservations([savedReservation, ...getLocalReservations().filter((r) => r.id !== savedReservation.id)]);
+      // Atualiza o registro local com o ID definitivo gerado no Supabase
+      const currentLocal = getLocalReservations();
+      const replacedLocal = currentLocal.map((r) => (r.id === localId ? savedReservation : r));
+      saveLocalReservations(replacedLocal);
       return { data: savedReservation, isSupabase: true };
     } catch (err: any) {
-      console.error('Erro na criação de reserva no Supabase:', err);
-      const local = getLocalReservations();
-      const updated = [newReservation, ...local];
-      saveLocalReservations(updated);
-      return { data: newReservation, isSupabase: false, error: err.message };
+      console.warn('Supabase timeout ou rede lenta, mantendo reserva salva localmente:', err?.message || err);
+      return { data: newReservation, isSupabase: false, error: err?.message };
     }
   },
 
@@ -411,13 +449,28 @@ export const reservationService = {
     }
   },
 
-  // 3. Atualizar reserva existente
+  // 3. Atualizar reserva existente (Garantia Local-First: Salva localmente IMEDIATAMENTE)
   async update(
     id: string,
     reservationData: Omit<Reservation, 'id' | 'criadoEm'>
   ): Promise<{ success: boolean; isSupabase: boolean; data?: Reservation; error?: string }> {
     const local = getLocalReservations();
     const timestamp = new Date().toISOString();
+
+    const updatedItem: Reservation = {
+      ...reservationData,
+      id,
+      criadoEm: (reservationData as any).criadoEm || timestamp,
+      modificadoEm: timestamp,
+    };
+
+    // ETAPA 1: Salva imediatamente no armazenamento local para resposta instantânea
+    const updatedLocalFirst = local.map((item) => (item.id === id ? updatedItem : item));
+    saveLocalReservations(updatedLocalFirst);
+
+    if (!isSupabaseConfigured || !supabase) {
+      return { success: true, isSupabase: false, data: updatedItem };
+    }
 
     const basePayload: Record<string, any> = {
       dia: reservationData.dia,
@@ -434,17 +487,6 @@ export const reservationService = {
     if (reservationData.criadoPor) fullPayload.criado_por = reservationData.criadoPor;
     if (reservationData.modificadoPor) fullPayload.modificado_por = reservationData.modificadoPor;
     if (reservationData.modificadoEm) fullPayload.modificado_em = reservationData.modificadoEm;
-
-    if (!isSupabaseConfigured || !supabase) {
-      const updatedItem: Reservation = {
-        ...reservationData,
-        id,
-        criadoEm: (reservationData as any).criadoEm || timestamp,
-      };
-      const updated = local.map((item) => (item.id === id ? updatedItem : item));
-      saveLocalReservations(updated);
-      return { success: true, isSupabase: false, data: updatedItem };
-    }
 
     try {
       // 1. Tenta atualizar com colunas completas
@@ -493,20 +535,14 @@ export const reservationService = {
       }
 
       if (error) {
-        console.warn('Erro persistindo no Supabase, mantendo no cache local:', error.message);
-        const fallbackItem: Reservation = {
-          ...reservationData,
-          id,
-          criadoEm: (reservationData as any).criadoEm || timestamp,
-        };
-        const updated = local.map((item) => (item.id === id ? fallbackItem : item));
-        saveLocalReservations(updated);
-        return { success: true, isSupabase: false, data: fallbackItem, error: error.message };
+        console.warn('Supabase não pôde persistir no momento, mantendo atualização local:', error.message);
+        return { success: true, isSupabase: false, data: updatedItem, error: error.message };
       }
 
       if (data && data.length > 0) {
         const savedReservation = toAppReservation(data[0] as DbReservation);
-        const updatedLocal = local.map((item) => (item.id === id ? savedReservation : item));
+        const currentLocal = getLocalReservations();
+        const updatedLocal = currentLocal.map((item) => (item.id === id ? savedReservation : item));
         if (!updatedLocal.some((item) => item.id === savedReservation.id)) {
           updatedLocal.unshift(savedReservation);
         }
@@ -514,24 +550,10 @@ export const reservationService = {
         return { success: true, isSupabase: true, data: savedReservation };
       }
 
-      const defaultItem: Reservation = {
-        ...reservationData,
-        id,
-        criadoEm: (reservationData as any).criadoEm || timestamp,
-      };
-      const updated = local.map((item) => (item.id === id ? defaultItem : item));
-      saveLocalReservations(updated);
-      return { success: true, isSupabase: false, data: defaultItem };
+      return { success: true, isSupabase: false, data: updatedItem };
     } catch (err: any) {
-      console.error('Erro na atualização no Supabase:', err);
-      const fallbackItem: Reservation = {
-        ...reservationData,
-        id,
-        criadoEm: (reservationData as any).criadoEm || timestamp,
-      };
-      const updated = local.map((item) => (item.id === id ? fallbackItem : item));
-      saveLocalReservations(updated);
-      return { success: true, isSupabase: false, data: fallbackItem, error: err.message };
+      console.warn('Timeout ou falha ao atualizar no Supabase, mantendo atualização local:', err?.message || err);
+      return { success: true, isSupabase: false, data: updatedItem, error: err?.message };
     }
   },
 

@@ -37,12 +37,20 @@ export function isMasterUser(user: AppUser | null | undefined): boolean {
 }
 
 /**
- * Guarda RBAC principal:
- * Usuário Comum: NÃO pode editar nem excluir reservas existentes.
- * Usuário Master: ÚNICO autorizado a editar e excluir reservas.
+ * Guarda RBAC:
+ * Edição: Permitida para todos os usuários autenticados (com auditoria de modificação).
+ * Exclusão: Reservada para Usuários Master.
  */
-export function canEditOrDelete(user: AppUser | null | undefined): boolean {
+export function canEditReservation(user: AppUser | null | undefined): boolean {
+  return Boolean(user);
+}
+
+export function canDeleteReservation(user: AppUser | null | undefined): boolean {
   return isMasterUser(user);
+}
+
+export function canEditOrDelete(user: AppUser | null | undefined): boolean {
+  return Boolean(user);
 }
 
 /**
