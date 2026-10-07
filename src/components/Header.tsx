@@ -4,19 +4,16 @@ import {
   Plus,
   Building2,
   Printer,
-  Search,
-  Filter,
-  Sparkles,
   BarChart3,
   Layers,
   Settings,
   LogOut,
-  BookOpen,
   Calendar,
   Bell,
   Crown,
+  MapPin,
 } from 'lucide-react';
-import { FilterOptions, AppUser } from '../types';
+import { FilterOptions, AppUser, Filial } from '../types';
 
 interface HeaderProps {
   onOpenNewModal: () => void;
@@ -39,6 +36,9 @@ interface HeaderProps {
   nextCount: number;
   currentUser?: AppUser | null;
   onLogout?: () => void;
+  onSelectFilial?: (filial: string) => void;
+  onOpenBranchManagerModal?: () => void;
+  filiaisList?: Filial[];
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -54,11 +54,14 @@ export const Header: React.FC<HeaderProps> = ({
   onOpenAnalyticsModal,
   onOpenSectorManagerModal,
   onOpenRoomManagerModal,
+  onOpenBranchManagerModal,
+  filiaisList = [],
   onOpenSupabaseModal,
   isSupabaseLive,
   filters,
   currentUser,
   onLogout,
+  onSelectFilial,
 }) => {
   const [currentDateTime, setCurrentDateTime] = useState<Date>(new Date());
 
@@ -202,6 +205,20 @@ export const Header: React.FC<HeaderProps> = ({
               <span className="hidden md:inline">Salas</span>
             </button>
 
+            {/* Botão Gerenciar e Cadastrar Filiais */}
+            {onOpenBranchManagerModal && (
+              <button
+                type="button"
+                id="btn-filiais-header"
+                onClick={onOpenBranchManagerModal}
+                title="Cadastrar e gerenciar filiais e unidades"
+                className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-white/10 hover:bg-white/20 text-white border border-white/20 text-xs font-semibold font-dm-sans transition shadow-xs active:scale-95 cursor-pointer"
+              >
+                <Building2 className="w-3.5 h-3.5 text-[#EAEAEA]" />
+                <span className="hidden md:inline">Filiais</span>
+              </button>
+            )}
+
             {/* Botão Calendário Mensal */}
             <button
               type="button"
@@ -253,94 +270,6 @@ export const Header: React.FC<HeaderProps> = ({
               <span className="hidden sm:inline">Relatório</span>
             </button>
 
-            {/* Status e Acesso Nuvem Supabase */}
-            {onOpenSupabaseModal && (
-              <button
-                type="button"
-                id="btn-supabase-status-header"
-                onClick={onOpenSupabaseModal}
-                title={
-                  isSupabaseLive
-                    ? 'Nuvem Supabase Ativa: Suas reservas estão salvas na nuvem e acessíveis de qualquer computador, tablet ou celular.'
-                    : 'Modo Local: Clique para abrir o painel de sincronização com o banco Supabase.'
-                }
-                className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl border text-xs font-semibold font-dm-sans transition shadow-xs active:scale-95 cursor-pointer ${
-                  isSupabaseLive
-                    ? 'bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-200 border-emerald-400/40'
-                    : 'bg-amber-500/20 hover:bg-amber-500/30 text-amber-200 border-amber-400/40'
-                }`}
-              >
-                <span className={`w-2 h-2 rounded-full ${isSupabaseLive ? 'bg-emerald-400 animate-pulse' : 'bg-amber-400'}`} />
-                <span className="hidden sm:inline">{isSupabaseLive ? 'Nuvem OK' : 'Sincronizar'}</span>
-              </button>
-            )}
-
-            {/* Botão de Como Usar & Tira-Dúvidas IA */}
-            <button
-              type="button"
-              id="btn-como-usar-guia-header"
-              onClick={onOpenHelpModal}
-              title="Passo a passo de como usar o aplicativo e Tira-Dúvidas com IA"
-              className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-white/10 hover:bg-white/20 text-white border border-white/20 text-xs font-bold font-dm-sans transition-all shadow-xs active:scale-95 cursor-pointer"
-            >
-              <BookOpen className="w-3.5 h-3.5 text-[#EAEAEA]" />
-              <span className="hidden sm:inline">Como Usar</span>
-              <span className="px-1 py-0.2 bg-[#FF2E63] text-white rounded-md text-[9px] font-black font-dm-sans leading-none">
-                IA
-              </span>
-            </button>
-
-            {/* BOTÃO DE PESQUISA & FILTRO + BOTÃO ❌ DE LIMPEZA */}
-            <div className="inline-flex items-center gap-1">
-              <button
-                type="button"
-                id="btn-abrir-pesquisa-header"
-                onClick={onOpenFilterModal}
-                className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-bold font-dm-sans transition-all shadow-xs active:scale-95 cursor-pointer ${
-                  activeFiltersCount > 0
-                    ? 'bg-white text-[#7D1416] border-white shadow-md'
-                    : 'bg-white/10 hover:bg-white/20 text-white border-white/20'
-                }`}
-              >
-                {activeFiltersCount > 0 ? (
-                  <Filter className="w-3.5 h-3.5 text-[#7D1416]" />
-                ) : (
-                  <Search className="w-3.5 h-3.5 text-white" />
-                )}
-                <span>Filtros</span>
-                {activeFiltersCount > 0 && (
-                  <span className="px-1.5 py-0.2 bg-[#FF2E63] text-white rounded-full text-[10px] font-black font-dm-sans leading-none">
-                    {activeFiltersCount}
-                  </span>
-                )}
-              </button>
-
-              {activeFiltersCount > 0 && onResetFilters && (
-                <button
-                  type="button"
-                  id="btn-limpar-filtro-emoji-header"
-                  onClick={onResetFilters}
-                  title="Limpar todos os filtros ativos (❌)"
-                  className="inline-flex items-center justify-center px-2 py-1.5 rounded-xl bg-[#FF2E63] hover:bg-[#AD2F3B] text-xs font-black text-white transition-all shadow-xs active:scale-95 cursor-pointer"
-                >
-                  <span className="text-sm leading-none mr-0.5">❌</span>
-                  <span className="hidden sm:inline font-dm-sans font-bold text-[11px]">Limpar</span>
-                </button>
-              )}
-            </div>
-
-            {/* BOTÃO DE ASSISTENTE IA */}
-            <button
-              type="button"
-              id="btn-assistente-ia-header"
-              onClick={onOpenAiModal}
-              title="Preenchimento automático via IA por texto ou imagem"
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-[#AD2F3B] hover:bg-[#AD2F3B]/80 text-white text-xs font-bold font-dm-sans tracking-wide transition-all shadow-sm active:scale-95 cursor-pointer border border-white/20"
-            >
-              <Sparkles className="w-3.5 h-3.5 text-white" />
-              <span>IA</span>
-            </button>
-
             {/* BOTÃO DE NOVA RESERVA (Call-to-Action com Rosa #FF2E63 - 4% Accent) */}
             <button
               type="button"
@@ -352,6 +281,191 @@ export const Header: React.FC<HeaderProps> = ({
               <span>NOVA RESERVA</span>
             </button>
           </div>
+        </div>
+
+        {/* Barra de Acesso Rápido de Filiais (Estilo "Salas" Bellinati Perez) */}
+        <div className="mt-3 pt-2.5 border-t border-white/15 flex items-center justify-between flex-wrap gap-2.5">
+          <div className="flex items-center gap-1.5 overflow-x-auto py-0.5 scrollbar-thin max-w-full">
+            <span className="text-[11px] font-bold uppercase tracking-wider text-[#EAEAEA]/80 font-raleway flex items-center gap-1 shrink-0 mr-1">
+              <MapPin className="w-3.5 h-3.5 text-amber-300" />
+              <span>Filiais:</span>
+            </span>
+
+            {/* Todas as Filiais */}
+            <button
+              type="button"
+              id="btn-filial-todas"
+              onClick={() => onSelectFilial?.('')}
+              title="Exibir todas as salas e filiais"
+              className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-xs font-semibold font-dm-sans transition shadow-xs active:scale-95 cursor-pointer shrink-0 ${
+                !filters.filial
+                  ? 'bg-white text-[#7D1416] font-bold border border-white shadow-md'
+                  : 'bg-white/10 hover:bg-white/20 text-white border border-white/20'
+              }`}
+            >
+              <Building2 className="w-3.5 h-3.5" />
+              <span>Todas</span>
+            </button>
+
+            {/* 1. Maringá (Matriz) - Com Destaque Especial */}
+            <button
+              type="button"
+              id="btn-filial-maringa"
+              onClick={() => onSelectFilial?.(filters.filial === 'Maringá (Matriz)' ? '' : 'Maringá (Matriz)')}
+              title="Matriz Maringá — PR (Sede Principal Bellinati Perez)"
+              className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-xs font-bold font-dm-sans transition shadow-xs active:scale-95 cursor-pointer shrink-0 ${
+                filters.filial === 'Maringá (Matriz)'
+                  ? 'bg-amber-400 text-[#252A34] font-black border-2 border-amber-300 ring-2 ring-amber-400/50 shadow-md'
+                  : 'bg-amber-400/20 hover:bg-amber-400/30 text-amber-200 border border-amber-400/50 ring-1 ring-amber-400/30'
+              }`}
+            >
+              <Crown className="w-3.5 h-3.5 text-amber-300 fill-amber-300" />
+              <span>Maringá</span>
+              <span className="px-1.5 py-0.2 bg-amber-400/30 text-amber-100 rounded text-[9px] font-black uppercase tracking-wider">
+                Matriz
+              </span>
+            </button>
+
+            {/* 2. Curitiba Park & Business */}
+            <button
+              type="button"
+              id="btn-filial-curitiba-park"
+              onClick={() => onSelectFilial?.(filters.filial === 'Curitiba Park & Business' ? '' : 'Curitiba Park & Business')}
+              title="Unidade Curitiba Park & Business — PR"
+              className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-xs font-semibold font-dm-sans transition shadow-xs active:scale-95 cursor-pointer shrink-0 ${
+                filters.filial === 'Curitiba Park & Business'
+                  ? 'bg-white text-[#7D1416] font-bold border border-white shadow-md'
+                  : 'bg-white/10 hover:bg-white/20 text-white border border-white/20'
+              }`}
+            >
+              <MapPin className="w-3.5 h-3.5 text-[#EAEAEA]" />
+              <span>Curitiba Park & Business</span>
+            </button>
+
+            {/* 3. Curitiba/CEBP */}
+            <button
+              type="button"
+              id="btn-filial-curitiba-cebp"
+              onClick={() => onSelectFilial?.(filters.filial === 'Curitiba/CEBP' ? '' : 'Curitiba/CEBP')}
+              title="Unidade Curitiba / CEBP — PR"
+              className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-xs font-semibold font-dm-sans transition shadow-xs active:scale-95 cursor-pointer shrink-0 ${
+                filters.filial === 'Curitiba/CEBP'
+                  ? 'bg-white text-[#7D1416] font-bold border border-white shadow-md'
+                  : 'bg-white/10 hover:bg-white/20 text-white border border-white/20'
+              }`}
+            >
+              <MapPin className="w-3.5 h-3.5 text-[#EAEAEA]" />
+              <span>Curitiba/CEBP</span>
+            </button>
+
+            {/* 4. Curitiba/Marechal */}
+            <button
+              type="button"
+              id="btn-filial-curitiba-marechal"
+              onClick={() => onSelectFilial?.(filters.filial === 'Curitiba/Marechal' ? '' : 'Curitiba/Marechal')}
+              title="Unidade Curitiba / Marechal — PR"
+              className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-xs font-semibold font-dm-sans transition shadow-xs active:scale-95 cursor-pointer shrink-0 ${
+                filters.filial === 'Curitiba/Marechal'
+                  ? 'bg-white text-[#7D1416] font-bold border border-white shadow-md'
+                  : 'bg-white/10 hover:bg-white/20 text-white border border-white/20'
+              }`}
+            >
+              <MapPin className="w-3.5 h-3.5 text-[#EAEAEA]" />
+              <span>Curitiba/Marechal</span>
+            </button>
+
+            {/* 5. Curitiba/Toronto */}
+            <button
+              type="button"
+              id="btn-filial-curitiba-toronto"
+              onClick={() => onSelectFilial?.(filters.filial === 'Curitiba/Toronto' ? '' : 'Curitiba/Toronto')}
+              title="Unidade Curitiba / Toronto — PR"
+              className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-xs font-semibold font-dm-sans transition shadow-xs active:scale-95 cursor-pointer shrink-0 ${
+                filters.filial === 'Curitiba/Toronto'
+                  ? 'bg-white text-[#7D1416] font-bold border border-white shadow-md'
+                  : 'bg-white/10 hover:bg-white/20 text-white border border-white/20'
+              }`}
+            >
+              <MapPin className="w-3.5 h-3.5 text-[#EAEAEA]" />
+              <span>Curitiba/Toronto</span>
+            </button>
+
+            {/* 6. Fortaleza/planalto */}
+            <button
+              type="button"
+              id="btn-filial-fortaleza-planalto"
+              onClick={() => onSelectFilial?.(filters.filial === 'Fortaleza/planalto' ? '' : 'Fortaleza/planalto')}
+              title="Unidade Fortaleza / planalto — CE"
+              className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-xs font-semibold font-dm-sans transition shadow-xs active:scale-95 cursor-pointer shrink-0 ${
+                filters.filial === 'Fortaleza/planalto'
+                  ? 'bg-white text-[#7D1416] font-bold border border-white shadow-md'
+                  : 'bg-white/10 hover:bg-white/20 text-white border border-white/20'
+              }`}
+            >
+              <MapPin className="w-3.5 h-3.5 text-[#EAEAEA]" />
+              <span>Fortaleza/planalto</span>
+            </button>
+
+            {/* Filiais Customizadas Cadastradas */}
+            {filiaisList
+              .filter(
+                (f) =>
+                  ![
+                    'Maringá (Matriz)',
+                    'Curitiba Park & Business',
+                    'Curitiba/CEBP',
+                    'Curitiba/Marechal',
+                    'Curitiba/Toronto',
+                    'Fortaleza/planalto',
+                  ].includes(f.nome)
+              )
+              .map((f) => (
+                <button
+                  key={f.id}
+                  type="button"
+                  onClick={() => onSelectFilial?.(filters.filial === f.nome ? '' : f.nome)}
+                  title={`Unidade ${f.nome} — ${f.cidade}`}
+                  className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-xs font-semibold font-dm-sans transition shadow-xs active:scale-95 cursor-pointer shrink-0 ${
+                    filters.filial === f.nome
+                      ? 'bg-white text-[#7D1416] font-bold border border-white shadow-md'
+                      : 'bg-white/10 hover:bg-white/20 text-white border border-white/20'
+                  }`}
+                >
+                  <MapPin className="w-3.5 h-3.5 text-[#EAEAEA]" />
+                  <span>{f.nome}</span>
+                </button>
+              ))}
+
+            {/* Botão Acesso Rápido para Registro/Gerenciamento de Filiais */}
+            {onOpenBranchManagerModal && (
+              <button
+                type="button"
+                id="btn-cadastrar-filial-quick"
+                onClick={onOpenBranchManagerModal}
+                title="Cadastrar nova filial ou gerenciar unidades"
+                className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-white/10 hover:bg-white/20 text-amber-200 hover:text-white border border-white/20 text-xs font-bold font-dm-sans transition shadow-xs active:scale-95 cursor-pointer shrink-0 ml-1"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                <span>+ Filial</span>
+              </button>
+            )}
+          </div>
+
+          {filters.filial && (
+            <div className="flex items-center gap-1.5 shrink-0">
+              <span className="text-[11px] text-white/90 font-mono">
+                Unidade ativa: <strong className="text-white">{filters.filial}</strong>
+              </span>
+              <button
+                type="button"
+                onClick={() => onSelectFilial?.('')}
+                className="text-[10px] bg-white/20 hover:bg-white/30 text-white px-2 py-0.5 rounded-lg font-bold transition cursor-pointer"
+                title="Remover filtro de filial"
+              >
+                Limpar ✕
+              </button>
+            </div>
+          )}
         </div>
       </div>
     </header>

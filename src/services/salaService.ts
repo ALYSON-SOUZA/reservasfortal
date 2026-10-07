@@ -2,30 +2,73 @@ import { supabase, isSupabaseConfigured, toAppSala, toDbSala } from '../lib/supa
 import { Sala, Reservation, DbSala } from '../types';
 import { DEFAULT_SALAS } from '../utils/mockData';
 
-const LOCAL_STORAGE_KEY = 'salas_facilities_bellinati_v2';
+const LOCAL_STORAGE_KEY = 'salas_facilities_bellinati_v5';
 
-// 5 Salas padrão oficiais
+// Purga chaves legadas de versões anteriores do navegador
+try {
+  if (typeof window !== 'undefined' && window.localStorage) {
+    window.localStorage.removeItem('salas_facilities_bellinati_v1');
+    window.localStorage.removeItem('salas_facilities_bellinati_v2');
+    window.localStorage.removeItem('salas_facilities_bellinati_v3');
+    window.localStorage.removeItem('salas_facilities_bellinati_v4');
+  }
+} catch {
+  // ignore
+}
+
+// 6 Filiais Oficiais — Bellinati Perez
+export const OFFICIAL_FILIAIS = [
+  { id: 'maringa', nome: 'Maringá', isMatriz: true, label: 'Maringá (Matriz)' },
+  { id: 'curitiba-park', nome: 'Curitiba Park & Business', isMatriz: false, label: 'Curitiba Park & Business' },
+  { id: 'curitiba-cebp', nome: 'Curitiba/CEBP', isMatriz: false, label: 'Curitiba/CEBP' },
+  { id: 'curitiba-marechal', nome: 'Curitiba/Marechal', isMatriz: false, label: 'Curitiba/Marechal' },
+  { id: 'curitiba-toronto', nome: 'Curitiba/Toronto', isMatriz: false, label: 'Curitiba/Toronto' },
+  { id: 'fortaleza-planalto', nome: 'Fortaleza/planalto', isMatriz: false, label: 'Fortaleza/planalto' },
+] as const;
+
+// Salas padrão oficiais distribuídas por filial (conforme tabela oficial Bellinati Perez)
 export function getDefaultSalas(): Sala[] {
-  const roomMeta: Record<string, { capacidade: number; filial: string }> = {
-    'Sala 215 - Auditório': { capacidade: 50, filial: 'Fortaleza - CE' },
-    'Sala 216 - Executivos': { capacidade: 15, filial: 'Fortaleza - CE' },
-    'Sala 212 - Contingencia': { capacidade: 20, filial: 'Fortaleza - CE' },
-    'Sala 116 - Contingencia': { capacidade: 20, filial: 'Fortaleza - CE' },
-    'Sala 118 - Contingencia': { capacidade: 20, filial: 'Fortaleza - CE' },
-  };
+  const roomsConfig: Array<{ nome: string; filial: string; capacidade: number | null; recursos: string[] }> = [
+    // 1. Fortaleza/planalto (AUDITORIO 2 | Cap: 30)
+    { nome: 'Auditório 2', filial: 'Fortaleza/planalto', capacidade: 30, recursos: ['Projetor', 'Videoconferência', 'TV', 'Sistema de Áudio'] },
 
-  return DEFAULT_SALAS.map((nome, index) => {
-    const meta = roomMeta[nome] || { capacidade: 20, filial: 'Fortaleza - CE' };
+    // 2. Curitiba/Toronto (REUNIÃO 14, 13, 12, 10, 8, 7)
+    { nome: 'Reunião 14', filial: 'Curitiba/Toronto', capacidade: 10, recursos: ['TV', 'Videoconferência', 'Quadro Branco'] },
+    { nome: 'Reunião 13', filial: 'Curitiba/Toronto', capacidade: 10, recursos: ['TV', 'Videoconferência'] },
+    { nome: 'Reunião 12', filial: 'Curitiba/Toronto', capacidade: 10, recursos: ['TV', 'Videoconferência', 'Quadro Branco'] },
+    { nome: 'Reunião 10', filial: 'Curitiba/Toronto', capacidade: 10, recursos: ['TV', 'Videoconferência'] },
+    { nome: 'Reunião 8', filial: 'Curitiba/Toronto', capacidade: 8, recursos: ['TV', 'Quadro Branco'] },
+    { nome: 'Reunião 7', filial: 'Curitiba/Toronto', capacidade: 8, recursos: ['TV', 'Quadro Branco'] },
 
-    return {
-      id: `sala-default-${index + 1}`,
-      nome,
-      filial: meta.filial,
-      capacidade: meta.capacidade,
-      ativa: true,
-      criadoEm: new Date('2026-01-01T00:00:00Z').toISOString(),
-    };
-  });
+    // 3. Maringá (Matriz) (REUNIÃO 11, 12)
+    { nome: 'Reunião 11', filial: 'Maringá (Matriz)', capacidade: 12, recursos: ['TV', 'Videoconferência', 'Quadro Branco'] },
+    { nome: 'Reunião 12', filial: 'Maringá (Matriz)', capacidade: 12, recursos: ['TV', 'Videoconferência', 'Quadro Branco'] },
+
+    // 4. Curitiba Park & Business (AUDITORIO 9, REUNIÃO 9, REUNIÃO 11, AUDITORIO 12)
+    { nome: 'Auditório 9', filial: 'Curitiba Park & Business', capacidade: 28, recursos: ['Projetor', 'Videoconferência', 'TV', 'Sistema de Áudio'] },
+    { nome: 'Reunião 9', filial: 'Curitiba Park & Business', capacidade: 8, recursos: ['TV', 'Videoconferência', 'Quadro Branco'] },
+    { nome: 'Reunião 11', filial: 'Curitiba Park & Business', capacidade: 6, recursos: ['TV', 'Quadro Branco'] },
+    { nome: 'Auditório 12', filial: 'Curitiba Park & Business', capacidade: 30, recursos: ['Projetor', 'Videoconferência', 'TV', 'Sistema de Áudio'] },
+
+    // 5. Curitiba/Marechal (REUNIÃO 1, 4, 15, 16, EXECUTIVA 19, REUNIÃO 21, 22)
+    { nome: 'Reunião 1', filial: 'Curitiba/Marechal', capacidade: 10, recursos: ['TV', 'Videoconferência'] },
+    { nome: 'Reunião 4', filial: 'Curitiba/Marechal', capacidade: 10, recursos: ['TV', 'Videoconferência'] },
+    { nome: 'Reunião 15', filial: 'Curitiba/Marechal', capacidade: 10, recursos: ['TV', 'Videoconferência'] },
+    { nome: 'Reunião 16', filial: 'Curitiba/Marechal', capacidade: 10, recursos: ['TV', 'Videoconferência'] },
+    { nome: 'Executiva 19', filial: 'Curitiba/Marechal', capacidade: 15, recursos: ['Videoconferência', 'TV', 'Quadro Branco', 'Climatizada'] },
+    { nome: 'Reunião 21', filial: 'Curitiba/Marechal', capacidade: 10, recursos: ['TV', 'Videoconferência'] },
+    { nome: 'Reunião 22', filial: 'Curitiba/Marechal', capacidade: 10, recursos: ['TV', 'Videoconferência'] },
+  ];
+
+  return roomsConfig.map((item, index) => ({
+    id: `sala-oficial-${index + 1}`,
+    nome: item.nome,
+    filial: item.filial,
+    capacidade: item.capacidade,
+    recursos: item.recursos,
+    ativa: true,
+    criadoEm: new Date('2026-01-01T00:00:00Z').toISOString(),
+  }));
 }
 
 // Obter salas do localStorage local com sanitização
@@ -35,21 +78,9 @@ export function getLocalSalas(): Sala[] {
     if (saved) {
       const parsed: Sala[] = JSON.parse(saved);
       if (Array.isArray(parsed) && parsed.length > 0) {
-        // Verifica se ainda existem salas antigas que devem ser removidas
-        const hasLegacyRooms = parsed.some((s) =>
-          s.nome.includes('Aldeota') ||
-          s.nome.includes('Meireles') ||
-          s.nome.includes('Iracema') ||
-          s.nome.includes('Dragão do Mar') ||
-          s.nome.includes('Cocó') ||
-          s.nome.includes('Papicu') ||
-          s.nome.includes('Sala 01') ||
-          s.nome.includes('Sala 02') ||
-          s.nome.includes('Sala 03') ||
-          s.nome.includes('Sala 04')
-        );
-
-        if (!hasLegacyRooms) {
+        // Verifica se a lista possui as novas salas da tabela
+        const hasNewRooms = parsed.some((s) => s.nome === 'Auditório 2' || s.nome === 'Executiva 19' || s.nome === 'Reunião 14');
+        if (hasNewRooms) {
           return parsed;
         }
       }

@@ -166,12 +166,13 @@ export const exportReservationsToPDF = (
   <table>
     <thead>
       <tr>
-        <th style="width: 10%;">Data</th>
-        <th style="width: 12%;">Horário</th>
-        <th style="width: 22%;">Sala / Espaço</th>
-        <th style="width: 20%;">Solicitante</th>
-        <th style="width: 16%;">Setor / Depto</th>
-        <th style="width: 10%;">GLPI</th>
+        <th style="width: 9%;">Data</th>
+        <th style="width: 11%;">Horário</th>
+        <th style="width: 18%;">Sala / Espaço</th>
+        <th style="width: 17%;">Solicitante</th>
+        <th style="width: 14%;">Setor / Depto</th>
+        <th style="width: 9%;">GLPI</th>
+        <th style="width: 12%;">Responsável (CPF)</th>
         <th style="width: 10%;">Status</th>
       </tr>
     </thead>
@@ -192,6 +193,10 @@ export const exportReservationsToPDF = (
             }
           }
 
+          const responsavelInfo = r.criadoPor
+            ? `<strong>${r.criadoPor}</strong>${r.criadoPorCpf ? `<br><span style="font-size:9px; color:#555; font-family:monospace;">CPF ${r.criadoPorCpf}</span>` : ''}`
+            : '<span style="color:#888;">Operador</span>';
+
           return `
         <tr style="${rowBg}">
           <td><strong>${formatDateBR(r.dia)}</strong></td>
@@ -200,6 +205,7 @@ export const exportReservationsToPDF = (
           <td>${r.solicitante}</td>
           <td>${r.setor}</td>
           <td class="glpi-tag">#${r.glpi}</td>
+          <td>${responsavelInfo}</td>
           <td>${statusBadge}</td>
         </tr>
       `;

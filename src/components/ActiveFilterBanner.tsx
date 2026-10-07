@@ -28,6 +28,7 @@ export const ActiveFilterBanner: React.FC<ActiveFilterBannerProps> = ({
     Boolean(filters.glpi) ||
     Boolean(filters.sala) ||
     Boolean(filters.setor) ||
+    Boolean(filters.filial) ||
     filters.mostrarEncerradas;
 
   if (!hasFilters) return null;
@@ -114,6 +115,19 @@ export const ActiveFilterBanner: React.FC<ActiveFilterBannerProps> = ({
             Setor: <strong className="text-[#252A34]">{filters.setor}</strong>
             <button
               onClick={() => onRemoveFilter('setor')}
+              className="text-[#252A34]/50 hover:text-[#AD2F3B] hover:bg-[#AD2F3B]/10 ml-1 p-0.5 rounded transition cursor-pointer"
+            >
+              <X className="w-3 h-3" />
+            </button>
+          </span>
+        )}
+
+        {filters.filial && (
+          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-amber-50 border border-amber-300 text-amber-950 font-bold shadow-xs">
+            Filial: <strong className="text-[#7D1416]">{filters.filial}</strong>
+            <button
+              onClick={() => onRemoveFilter('filial')}
+              title="Remover filtro de filial"
               className="text-[#252A34]/50 hover:text-[#AD2F3B] hover:bg-[#AD2F3B]/10 ml-1 p-0.5 rounded transition cursor-pointer"
             >
               <X className="w-3 h-3" />

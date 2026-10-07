@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { Sala, Reservation } from '../types';
+import { Sala, Reservation, Filial } from '../types';
 import { salaService } from '../services/salaService';
+import { filialService } from '../services/filialService';
 import {
   X,
   Plus,
@@ -16,6 +17,7 @@ import {
   Search,
   Eye,
   EyeOff,
+  Building2,
 } from 'lucide-react';
 
 interface RoomManagerModalProps {
@@ -34,6 +36,7 @@ export const RoomManagerModal: React.FC<RoomManagerModalProps> = ({
   currentSelectedRoom,
 }) => {
   const [salas, setSalas] = useState<Sala[]>([]);
+  const [registeredFiliais, setRegisteredFiliais] = useState<Filial[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [feedbackMessage, setFeedbackMessage] = useState<{ type: 'success' | 'error' | 'info'; text: string } | null>(null);
 
@@ -41,8 +44,9 @@ export const RoomManagerModal: React.FC<RoomManagerModalProps> = ({
   const [isEditing, setIsEditing] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [nome, setNome] = useState('');
-  const [filial, setFilial] = useState('Fortaleza - CE');
+  const [filial, setFilial] = useState('Maringá (Matriz)');
   const [capacidade, setCapacidade] = useState<string>('');
+  const [observacoes, setObservacoes] = useState('');
   const [ativa, setAtiva] = useState(true);
   const [formError, setFormError] = useState<string | null>(null);
 
@@ -51,21 +55,27 @@ export const RoomManagerModal: React.FC<RoomManagerModalProps> = ({
   const [filialFilter, setFilialFilter] = useState('');
   const [showOnlyActive, setShowOnlyActive] = useState(false);
 
-  // Carrega todas as salas ao abrir o modal
+  // Carrega todas as salas e filiais ao abrir o modal
   useEffect(() => {
     if (isOpen) {
-      loadSalas();
+      loadData();
     }
   }, [isOpen]);
 
-  const loadSalas = async () => {
+  const loadData = async () => {
     setIsLoading(true);
     try {
-      const res = await salaService.getAll({ apenasAtivas: false });
-      setSalas(res.data);
-      onRoomsUpdated(res.data);
+      const [resSalas, resFiliais] = await Promise.all([
+        salaService.getAll({ apenasAtivas: false }),
+        filialService.getAll({ apenasAtivas: true }),
+      ]);
+      setSalas(resSalas.data);
+      onRoomsUpdated(resSalas.data);
+      if (resFiliais.data && resFiliais.data.length > 0) {
+        setRegisteredFiliais(resFiliais.data);
+      }
     } catch {
-      setFeedbackMessage({ type: 'error', text: 'Não foi possível carregar a lista de salas.' });
+      setFeedbackMessage({ type: 'error', text: 'Não foi possível carregar a lista de salas e filiais.' });
     } finally {
       setIsLoading(false);
     }
@@ -77,8 +87,9 @@ export const RoomManagerModal: React.FC<RoomManagerModalProps> = ({
     setIsEditing(false);
     setEditingId(null);
     setNome('');
-    setFilial('Fortaleza - CE');
+    setFilial('Maringá (Matriz)');
     setCapacidade('');
+    setObservacoes('');
     setAtiva(true);
     setFormError(null);
   };
@@ -87,8 +98,9 @@ export const RoomManagerModal: React.FC<RoomManagerModalProps> = ({
     setIsEditing(true);
     setEditingId(sala.id);
     setNome(sala.nome);
-    setFilial(sala.filial || 'Fortaleza - CE');
+    setFilial(sala.filial || 'Maringá (Matriz)');
     setCapacidade(sala.capacidade ? String(sala.capacidade) : '');
+    setObservacoes('');
     setAtiva(sala.ativa);
     setFormError(null);
   };
@@ -98,8 +110,20 @@ export const RoomManagerModal: React.FC<RoomManagerModalProps> = ({
     setFormError(null);
 
     const trimmedNome = nome.trim();
+    const trimmedFilial = filial.trim();
+
     if (!trimmedNome) {
-      setFormError('Por favor, informe o nome da sala.');
+      setFormError('Por favor, informe o nome da sala (campo obrigatório).');
+      return;
+    }
+    if (!trimmedFilial) {
+      setFormError('Por favor, inclua ou selecione a filial da sala (campo obrigatório).');
+      return;
+    }
+
+    const parsedCapacidade = capacidade.trim() ? parseInt(capacidade, 10) : null;
+    if (parsedCapacidade === null || isNaN(parsedCapacidade) || parsedCapacidade <= 0) {
+      setFormError('Por favor, informe a capacidade de lugares da sala (campo obrigatório, valor maior que zero).');
       return;
     }
 
@@ -111,18 +135,12 @@ export const RoomManagerModal: React.FC<RoomManagerModalProps> = ({
       return;
     }
 
-    const parsedCapacidade = capacidade.trim() ? parseInt(capacidade, 10) : null;
-    if (parsedCapacidade !== null && (isNaN(parsedCapacidade) || parsedCapacidade <= 0)) {
-      setFormError('A capacidade deve ser um número positivo.');
-      return;
-    }
-
     setIsLoading(true);
     try {
       if (isEditing && editingId) {
         const res = await salaService.update(editingId, {
           nome: trimmedNome,
-          filial: filial.trim(),
+          filial: trimmedFilial,
           capacidade: parsedCapacidade,
           ativa,
         });
@@ -140,7 +158,7 @@ export const RoomManagerModal: React.FC<RoomManagerModalProps> = ({
       } else {
         const res = await salaService.create({
           nome: trimmedNome,
-          filial: filial.trim(),
+          filial: trimmedFilial,
           capacidade: parsedCapacidade,
           ativa,
         });
@@ -225,7 +243,9 @@ export const RoomManagerModal: React.FC<RoomManagerModalProps> = ({
     return true;
   });
 
-  const filiaisList = Array.from(new Set(salas.map((s) => s.filial).filter(Boolean)));
+  const distinctFiliaisInSalas = Array.from(
+    new Set([...salas.map((s) => s.filial), ...registeredFiliais.map((f) => f.nome)].filter(Boolean))
+  );
 
   return (
     <div
@@ -318,6 +338,17 @@ export const RoomManagerModal: React.FC<RoomManagerModalProps> = ({
               )}
             </div>
 
+            {/* Alerta de Regra Cadastral */}
+            <div className="mb-3 px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-700 font-medium flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <span className="font-bold text-[#7D1416]">* Regra:</span>
+                <span>Todos os campos são obrigatórios, exceto o campo para observações.</span>
+              </div>
+              <span className="text-[10px] font-bold uppercase tracking-wider bg-rose-100 text-rose-800 px-2 py-0.5 rounded-md">
+                Filial Obrigatória
+              </span>
+            </div>
+
             {formError && (
               <div className="mb-3 p-2.5 bg-rose-50 border border-rose-200 rounded-xl text-xs text-rose-800 font-medium flex items-center gap-2">
                 <AlertTriangle className="w-4 h-4 shrink-0" />
@@ -328,9 +359,9 @@ export const RoomManagerModal: React.FC<RoomManagerModalProps> = ({
             <form onSubmit={handleSaveSala} className="space-y-3">
               <div className="grid grid-cols-1 sm:grid-cols-12 gap-3">
                 {/* Nome */}
-                <div className="sm:col-span-6">
+                <div className="sm:col-span-5">
                   <label className="block text-xs font-bold text-slate-700 mb-1 font-raleway">
-                    Nome da Sala <span className="text-[#AD2F3B]">*</span>
+                    Nome da Sala <span className="text-[#AD2F3B] font-bold">*</span>
                   </label>
                   <input
                     type="text"
@@ -344,35 +375,69 @@ export const RoomManagerModal: React.FC<RoomManagerModalProps> = ({
 
                 {/* Filial */}
                 <div className="sm:col-span-4">
-                  <label className="block text-xs font-bold text-slate-700 mb-1 font-raleway">
-                    Filial / Unidade <span className="text-[#AD2F3B]">*</span>
+                  <label className="block text-xs font-bold text-slate-700 mb-1 font-raleway flex items-center gap-1">
+                    <MapPin className="w-3 h-3 text-[#AD2F3B]" />
+                    <span>Filial / Unidade <span className="text-[#AD2F3B] font-bold">*</span></span>
                   </label>
                   <select
                     value={filial}
+                    required
                     onChange={(e) => setFilial(e.target.value)}
-                    className="w-full px-3 py-2 text-xs sm:text-sm bg-white border border-slate-300 rounded-xl focus:ring-2 focus:ring-[#AD2F3B]/20 focus:border-[#AD2F3B] text-slate-800 font-medium"
+                    className="w-full px-3 py-2 text-xs sm:text-sm bg-white border border-slate-300 rounded-xl focus:ring-2 focus:ring-[#AD2F3B]/20 focus:border-[#AD2F3B] text-slate-800 font-semibold"
                   >
-                    <option value="Fortaleza - CE">Fortaleza - CE</option>
-                    <option value="Curitiba - Matriz (PR)">Curitiba - Matriz (PR)</option>
-                    <option value="São Paulo - SP">São Paulo - SP</option>
-                    <option value="Remoto / Geral">Remoto / Geral</option>
+                    {registeredFiliais.length > 0 ? (
+                      registeredFiliais.map((f) => (
+                        <option key={f.id} value={f.nome}>
+                          {f.isMatriz ? `⭐ ${f.nome}` : f.nome}
+                        </option>
+                      ))
+                    ) : (
+                      <>
+                        <option value="Maringá (Matriz)">⭐ Maringá (Matriz)</option>
+                        <option value="Curitiba Park & Business">Curitiba Park & Business</option>
+                        <option value="Curitiba/CEBP">Curitiba/CEBP</option>
+                        <option value="Curitiba/Marechal">Curitiba/Marechal</option>
+                        <option value="Curitiba/Toronto">Curitiba/Toronto</option>
+                        <option value="Fortaleza/planalto">Fortaleza/planalto</option>
+                      </>
+                    )}
                   </select>
                 </div>
 
                 {/* Capacidade */}
-                <div className="sm:col-span-2">
+                <div className="sm:col-span-3">
                   <label className="block text-xs font-bold text-slate-700 mb-1 flex items-center gap-1 font-raleway">
                     <Users className="w-3 h-3 text-slate-500" />
-                    <span>Lugares</span>
+                    <span>Lugares <span className="text-[#AD2F3B] font-bold">*</span></span>
                   </label>
                   <input
                     type="number"
                     min="1"
                     max="500"
+                    required
                     value={capacidade}
                     onChange={(e) => setCapacidade(e.target.value)}
                     placeholder="Ex: 12"
                     className="w-full px-2.5 py-2 text-xs sm:text-sm bg-white border border-slate-300 rounded-xl focus:ring-2 focus:ring-[#AD2F3B]/20 focus:border-[#AD2F3B] text-slate-800 font-medium text-center"
+                  />
+                </div>
+
+                {/* Observações da Sala - ÚNICO CAMPO OPCIONAL */}
+                <div className="sm:col-span-12">
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="block text-xs font-bold text-slate-700 font-raleway">
+                      Observações da Sala
+                    </label>
+                    <span className="text-[10px] font-semibold text-slate-500 bg-slate-200/60 px-2 py-0.5 rounded-md">
+                      Único campo opcional
+                    </span>
+                  </div>
+                  <input
+                    type="text"
+                    value={observacoes}
+                    onChange={(e) => setObservacoes(e.target.value)}
+                    placeholder="Ex: Possui conectividade HDMI e ar-condicionado independente (opcional)"
+                    className="w-full px-3 py-1.5 text-xs bg-white border border-slate-300 rounded-xl focus:ring-2 focus:ring-[#AD2F3B]/20 focus:border-[#AD2F3B] text-slate-800 font-medium"
                   />
                 </div>
               </div>
@@ -417,14 +482,14 @@ export const RoomManagerModal: React.FC<RoomManagerModalProps> = ({
             </div>
 
             <div className="flex items-center gap-2 w-full sm:w-auto justify-end">
-              {filiaisList.length > 0 && (
+              {distinctFiliaisInSalas.length > 0 && (
                 <select
                   value={filialFilter}
                   onChange={(e) => setFilialFilter(e.target.value)}
                   className="px-2.5 py-1.5 text-xs bg-slate-50 border border-slate-300 rounded-xl text-slate-700 font-medium"
                 >
                   <option value="">Todas as Filiais</option>
-                  {filiaisList.map((f) => (
+                  {distinctFiliaisInSalas.map((f) => (
                     <option key={f} value={f}>
                       {f}
                     </option>

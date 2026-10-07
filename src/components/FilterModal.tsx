@@ -68,6 +68,7 @@ export const FilterModal: React.FC<FilterModalProps> = ({
       glpi: '',
       sala: '',
       setor: '',
+      filial: '',
       mostrarEncerradas: false,
     };
     setTempFilters(emptyFilters);

@@ -177,14 +177,29 @@ DO $$ BEGIN
     END IF;
 END $$;
 
--- 6. DADOS INICIAIS (SEED BELLINATI PEREZ)
+-- 6. DADOS INICIAIS (SEED BELLINATI PEREZ - SALAS ATUALIZADAS)
 INSERT INTO public.salas (id, nome, filial, capacidade, recursos, ativa)
 VALUES
-    ('sala-215', 'Sala 215 - Auditório', 'Fortaleza - CE', 50, ARRAY['Projetor', 'Videoconferência', 'Ar-Condicionado', 'Microfones'], true),
-    ('sala-216', 'Sala 216 - Executivos', 'Fortaleza - CE', 15, ARRAY['TV 65"', 'Videoconferência', 'Quadro Branco', 'Ar-Condicionado'], true),
-    ('sala-212', 'Sala 212 - Contingencia', 'Fortaleza - CE', 20, ARRAY['TV 55"', 'Videoconferência', 'Ar-Condicionado'], true),
-    ('sala-116', 'Sala 116 - Contingencia', 'Fortaleza - CE', 20, ARRAY['TV 55"', 'Ar-Condicionado'], true),
-    ('sala-118', 'Sala 118 - Contingencia', 'Fortaleza - CE', 20, ARRAY['TV 55"', 'Ar-Condicionado'], true)
+    ('sala-fortaleza-2', 'Auditório 2', 'Fortaleza/planalto', 30, ARRAY['Projetor', 'Videoconferência', 'TV', 'Sistema de Áudio'], true),
+    ('sala-toronto-14', 'Reunião 14', 'Curitiba/Toronto', 10, ARRAY['TV', 'Videoconferência', 'Quadro Branco'], true),
+    ('sala-toronto-13', 'Reunião 13', 'Curitiba/Toronto', 10, ARRAY['TV', 'Videoconferência'], true),
+    ('sala-toronto-12', 'Reunião 12', 'Curitiba/Toronto', 10, ARRAY['TV', 'Videoconferência', 'Quadro Branco'], true),
+    ('sala-toronto-10', 'Reunião 10', 'Curitiba/Toronto', 10, ARRAY['TV', 'Videoconferência'], true),
+    ('sala-toronto-8', 'Reunião 8', 'Curitiba/Toronto', 8, ARRAY['TV', 'Quadro Branco'], true),
+    ('sala-toronto-7', 'Reunião 7', 'Curitiba/Toronto', 8, ARRAY['TV', 'Quadro Branco'], true),
+    ('sala-maringa-11', 'Reunião 11', 'Maringá (Matriz)', 12, ARRAY['TV', 'Videoconferência', 'Quadro Branco'], true),
+    ('sala-maringa-12', 'Reunião 12', 'Maringá (Matriz)', 12, ARRAY['TV', 'Videoconferência', 'Quadro Branco'], true),
+    ('sala-park-aud-9', 'Auditório 9', 'Curitiba Park & Business', 28, ARRAY['Projetor', 'Videoconferência', 'TV', 'Sistema de Áudio'], true),
+    ('sala-park-reu-9', 'Reunião 9', 'Curitiba Park & Business', 8, ARRAY['TV', 'Videoconferência', 'Quadro Branco'], true),
+    ('sala-park-reu-11', 'Reunião 11', 'Curitiba Park & Business', 6, ARRAY['TV', 'Quadro Branco'], true),
+    ('sala-park-aud-12', 'Auditório 12', 'Curitiba Park & Business', 30, ARRAY['Projetor', 'Videoconferência', 'TV', 'Sistema de Áudio'], true),
+    ('sala-marechal-1', 'Reunião 1', 'Curitiba/Marechal', 10, ARRAY['TV', 'Videoconferência'], true),
+    ('sala-marechal-4', 'Reunião 4', 'Curitiba/Marechal', 10, ARRAY['TV', 'Videoconferência'], true),
+    ('sala-marechal-15', 'Reunião 15', 'Curitiba/Marechal', 10, ARRAY['TV', 'Videoconferência'], true),
+    ('sala-marechal-16', 'Reunião 16', 'Curitiba/Marechal', 10, ARRAY['TV', 'Videoconferência'], true),
+    ('sala-marechal-exec-19', 'Executiva 19', 'Curitiba/Marechal', 15, ARRAY['Videoconferência', 'TV', 'Quadro Branco', 'Climatizada'], true),
+    ('sala-marechal-21', 'Reunião 21', 'Curitiba/Marechal', 10, ARRAY['TV', 'Videoconferência'], true),
+    ('sala-marechal-22', 'Reunião 22', 'Curitiba/Marechal', 10, ARRAY['TV', 'Videoconferência'], true)
 ON CONFLICT (nome) DO UPDATE SET
     filial = EXCLUDED.filial,
     capacidade = EXCLUDED.capacidade,
@@ -204,9 +219,9 @@ ON CONFLICT (nome) DO UPDATE SET
 
 INSERT INTO public.reservations (id, dia, sala, hora_inicial, hora_final, solicitante, setor, glpi, observacoes, criado_por)
 VALUES
-    ('res-seed-1', CURRENT_DATE, 'Sala 215 - Auditório', '08:30', '10:00', 'Alyson Souza Barreto', 'Suporte', '104820', 'Alinhamento de infraestrutura de TI', 'Alyson'),
-    ('res-seed-2', CURRENT_DATE, 'Sala 216 - Executivos', '10:30', '12:00', 'Mariana Alencar', 'Atração de Talentos', '104829', 'Integração de novos colaboradores', 'Mariana'),
-    ('res-seed-3', CURRENT_DATE, 'Sala 212 - Contingencia', '14:00', '16:00', 'Carlos Eduardo Lima', 'BV', '104835', 'Apresentação de metas e orçamento', 'Carlos')
+    ('res-seed-1', CURRENT_DATE, 'Auditório 2', '08:30', '10:00', 'Alyson Souza Barreto', 'Suporte', '104820', 'Alinhamento de infraestrutura de TI', 'Alyson'),
+    ('res-seed-2', CURRENT_DATE, 'Executiva 19', '10:30', '12:00', 'Mariana Alencar', 'Atração de Talentos', '104829', 'Integração de novos colaboradores', 'Mariana'),
+    ('res-seed-3', CURRENT_DATE, 'Reunião 14', '14:00', '16:00', 'Carlos Eduardo Lima', 'BV', '104835', 'Apresentação de metas e orçamento', 'Carlos')
 ON CONFLICT (id) DO NOTHING;`;
 
   const sqlReservationsOnly = `-- TABELA DE RESERVAS (public.reservations)

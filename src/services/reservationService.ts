@@ -14,16 +14,30 @@ try {
 }
 
 const LEGACY_ROOM_MAP: Record<string, string> = {
-  'Sala 01 - Reunião Diretoria (Aldeota)': 'Sala 215 - Auditório',
-  'Sala 02 - Treinamento & Inovação (Meireles)': 'Sala 216 - Executivos',
-  'Sala 03 - Videoconferência (Iracema)': 'Sala 212 - Contingencia',
-  'Auditório Principal - Dragão do Mar (Fortaleza)': 'Sala 215 - Auditório',
-  'Sala 04 - Reunião Ágil (Beira-Mar)': 'Sala 118 - Contingencia',
-  'Sala de Brainstorming (Cocó)': 'Sala 116 - Contingencia',
-  'Laboratório de Projetos (Papicu)': 'Sala 118 - Contingencia',
-  'Sala de Reunião 01': 'Sala 215 - Auditório',
-  'Auditório Principal': 'Sala 215 - Auditório',
-  'Sala de Treinamento': 'Sala 216 - Executivos',
+  'Sala 215 - Auditório': 'Auditório 2',
+  'Sala 216 - Executivos': 'Executiva 19',
+  'Sala 212 - Contingencia': 'Reunião 1',
+  'Sala 116 - Contingencia': 'Reunião 4',
+  'Sala 118 - Contingencia': 'Reunião 7',
+  'Curitiba Park & Business - Sala Executiva': 'Auditório 9',
+  'Curitiba Park & Business - Sala Reunião 01': 'Reunião 9',
+  'Curitiba/Marechal - Sala Marechal A': 'Reunião 15',
+  'Curitiba/Marechal - Sala Marechal B': 'Reunião 16',
+  'Curitiba/Toronto - Sala Toronto 01': 'Reunião 14',
+  'Curitiba/Toronto - Sala Toronto 02': 'Reunião 13',
+  'Maringá - Auditório Matriz': 'Reunião 11',
+  'Maringá - Sala Diretoria': 'Reunião 12',
+  'Maringá - Sala Inovação & Projetos': 'Reunião 11',
+  'Sala 01 - Reunião Diretoria (Aldeota)': 'Auditório 2',
+  'Sala 02 - Treinamento & Inovação (Meireles)': 'Executiva 19',
+  'Sala 03 - Videoconferência (Iracema)': 'Reunião 1',
+  'Auditório Principal - Dragão do Mar (Fortaleza)': 'Auditório 2',
+  'Sala 04 - Reunião Ágil (Beira-Mar)': 'Reunião 4',
+  'Sala de Brainstorming (Cocó)': 'Reunião 8',
+  'Laboratório de Projetos (Papicu)': 'Reunião 10',
+  'Sala de Reunião 01': 'Auditório 2',
+  'Auditório Principal': 'Auditório 2',
+  'Sala de Treinamento': 'Reunião 1',
 };
 
 const LEGACY_SETOR_MAP: Record<string, string> = {
@@ -311,6 +325,7 @@ export const reservationService = {
         observacoes: reservationData.observacoes || null,
       };
 
+      if (reservationData.filial) basePayload.filial = reservationData.filial;
       if (reservationData.criadoPor) basePayload.criado_por = reservationData.criadoPor;
       if (reservationData.modificadoPor) basePayload.modificado_por = reservationData.modificadoPor;
 
@@ -482,6 +497,8 @@ export const reservationService = {
       glpi: (reservationData.glpi || '').replace('#', '').trim(),
       observacoes: reservationData.observacoes ? reservationData.observacoes.trim() : null,
     };
+
+    if (reservationData.filial) basePayload.filial = reservationData.filial;
 
     const fullPayload: Record<string, any> = { ...basePayload };
     if (reservationData.criadoPor) fullPayload.criado_por = reservationData.criadoPor;

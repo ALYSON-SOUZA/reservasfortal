@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
-import { Reservation, FilterOptions, Sala, Setor, ToastNotification, AppUser } from './types';
+import { Reservation, FilterOptions, Sala, Setor, ToastNotification, AppUser, Filial } from './types';
 import { Header } from './components/Header';
 import { NextReservationsBanner } from './components/NextReservationsBanner';
 import { ActiveFilterBanner } from './components/ActiveFilterBanner';
@@ -14,6 +14,7 @@ import { AiReservationModal } from './components/AiReservationModal';
 import { AnalyticsDashboardModal } from './components/AnalyticsDashboardModal';
 import { SectorManagerModal } from './components/SectorManagerModal';
 import { RoomManagerModal } from './components/RoomManagerModal';
+import { BranchManagerModal } from './components/BranchManagerModal';
 import { HelpGuideModal } from './components/HelpGuideModal';
 import { MonthlyCalendarOverlay } from './components/MonthlyCalendarOverlay';
 import { ReservationDetailModal } from './components/ReservationDetailModal';
@@ -25,6 +26,7 @@ import { reservationService, getLocalReservations } from './services/reservation
 import { notificationService } from './services/notificationService';
 import { salaService } from './services/salaService';
 import { setorService } from './services/setorService';
+import { filialService } from './services/filialService';
 import { isReservationExpired, hasTimeConflict } from './utils/dateUtils';
 import { canEditOrDelete } from './utils/rbac';
 
@@ -36,6 +38,7 @@ export default function App() {
   const [reservations, setReservations] = useState<Reservation[]>(() => getLocalReservations());
   const [rooms, setRooms] = useState<Sala[]>([]);
   const [sectors, setSectors] = useState<Setor[]>([]);
+  const [filiais, setFiliais] = useState<Filial[]>([]);
   const [isSupabaseLive, setIsSupabaseLive] = useState<boolean>(false);
   const [isLoading, setIsLoading] = useState<boolean>(true);
 
@@ -58,16 +61,20 @@ export default function App() {
   const loadData = useCallback(async () => {
     setIsLoading(true);
     try {
-      const [resResult, roomsResult, sectorsResult] = await Promise.all([
+      const [resResult, roomsResult, sectorsResult, filiaisResult] = await Promise.all([
         reservationService.getAll(),
         salaService.getAll({ apenasAtivas: false }),
         setorService.getAll({ apenasAtivos: false }),
+        filialService.getAll({ apenasAtivas: false }),
       ]);
 
       setReservations(resResult.data);
       setIsSupabaseLive(resResult.isSupabase);
       setRooms(roomsResult.data);
       setSectors(sectorsResult.data);
+      if (filiaisResult.data) {
+        setFiliais(filiaisResult.data);
+      }
 
       if (resResult.syncedCount && resResult.syncedCount > 0) {
         addToast(
@@ -174,6 +181,7 @@ export default function App() {
   const [isAnalyticsModalOpen, setIsAnalyticsModalOpen] = useState(false);
   const [isSectorManagerModalOpen, setIsSectorManagerModalOpen] = useState(false);
   const [isRoomManagerModalOpen, setIsRoomManagerModalOpen] = useState(false);
+  const [isBranchManagerOpen, setIsBranchManagerOpen] = useState(false);
   const [isHelpGuideOpen, setIsHelpGuideOpen] = useState(false);
   const [isCalendarOverlayOpen, setIsCalendarOverlayOpen] = useState(false);
   const [isDetailModalOpen, setIsDetailModalOpen] = useState(false);
@@ -237,12 +245,35 @@ export default function App() {
     };
   }, [isAiModalOpen]);
 
-  // Contagem de próximas reservas (ativas)
-  const nextReservationsCount = useMemo(() => {
-    return reservations.filter((res) => !isReservationExpired(res.dia, res.horaFinal, now)).length;
-  }, [reservations, now]);
+  // Mapeamento dinâmico de Sala -> Filial para filtragem precisa de reservas
+  const roomFilialMap = useMemo(() => {
+    const map = new Map<string, string>();
+    rooms.forEach((r) => {
+      if (r.nome && r.filial) {
+        map.set(r.nome.toLowerCase().trim(), r.filial.trim());
+      }
+    });
+    return map;
+  }, [rooms]);
 
-  // Lista filtrada para exibição (com suporte a período de data inicial e data final)
+  const resolveReservationFilial = (res: Reservation): string => {
+    if (res.filial && res.filial.trim()) return res.filial.trim();
+    const fromMap = roomFilialMap.get((res.sala || '').toLowerCase().trim());
+    if (fromMap) return fromMap;
+
+    // Heurística de fallback caso a filial não esteja explicitamente salva
+    const sName = (res.sala || '').toLowerCase();
+    if (sName.includes('maringá') || sName.includes('maringa') || sName.includes('matriz')) return 'Maringá (Matriz)';
+    if (sName.includes('park') || sName.includes('business')) return 'Curitiba Park & Business';
+    if (sName.includes('cebp')) return 'Curitiba/CEBP';
+    if (sName.includes('marechal')) return 'Curitiba/Marechal';
+    if (sName.includes('toronto')) return 'Curitiba/Toronto';
+    if (sName.includes('fortaleza') || sName.includes('planalto') || sName.includes('215') || sName.includes('216') || sName.includes('212') || sName.includes('116') || sName.includes('118')) return 'Fortaleza/planalto';
+
+    return '';
+  };
+
+  // Lista filtrada para exibição (com suporte a filial, período, sala, setor, solicitante e GLPI)
   const filteredReservations = useMemo(() => {
     const hasDateFilter = Boolean(filters.dataInicio || filters.dataFim || filters.data);
 
@@ -255,7 +286,16 @@ export default function App() {
           }
         }
 
-        // 2. Filtro por Período (Data Inicial e Data Final) ou Data Específica
+        // 2. Filtro por Filial (Maringá, Curitiba Park & Business, Curitiba/CEBP, Curitiba/Marechal, Curitiba/Toronto, Fortaleza/planalto)
+        if (filters.filial && filters.filial.trim()) {
+          const resFilial = resolveReservationFilial(res);
+          const target = filters.filial.trim().toLowerCase();
+          if (!resFilial || resFilial.toLowerCase() !== target) {
+            return false;
+          }
+        }
+
+        // 3. Filtro por Período (Data Inicial e Data Final) ou Data Específica
         if (filters.dataInicio && res.dia < filters.dataInicio) {
           return false;
         }
@@ -266,7 +306,7 @@ export default function App() {
           return false;
         }
 
-        // 3. Filtro por Solicitante
+        // 4. Filtro por Solicitante
         if (
           filters.solicitante &&
           !res.solicitante.toLowerCase().includes(filters.solicitante.toLowerCase().trim())
@@ -274,7 +314,7 @@ export default function App() {
           return false;
         }
 
-        // 4. Filtro por GLPI
+        // 5. Filtro por GLPI
         if (
           filters.glpi &&
           !res.glpi.toLowerCase().includes(filters.glpi.toLowerCase().trim().replace('#', ''))
@@ -282,12 +322,12 @@ export default function App() {
           return false;
         }
 
-        // 5. Filtro por Sala
+        // 6. Filtro por Sala
         if (filters.sala && res.sala !== filters.sala) {
           return false;
         }
 
-        // 6. Filtro por Setor
+        // 7. Filtro por Setor
         if (filters.setor && res.setor !== filters.setor) {
           return false;
         }
@@ -300,7 +340,12 @@ export default function App() {
         }
         return a.horaInicial.localeCompare(b.horaInicial);
       });
-  }, [reservations, filters, now]);
+  }, [reservations, filters, now, roomFilialMap]);
+
+  // Contagem de próximas reservas ativas (considerando o filtro ativo para consistência)
+  const nextReservationsCount = useMemo(() => {
+    return filteredReservations.filter((res) => !isReservationExpired(res.dia, res.horaFinal, now)).length;
+  }, [filteredReservations, now]);
 
   // Ações CRUD Integradas
   const handleOpenAddModal = (initialValues?: { dia?: string; sala?: string; horaInicial?: string; horaFinal?: string }) => {
@@ -313,7 +358,7 @@ export default function App() {
     if (!canEditOrDelete(currentUser)) {
       addToast(
         'warning',
-        'Acesso Restrito: Por favor, realize o login para editar reservas existentes.',
+        'Acesso Restrito: Apenas usuários autenticados com Senha Master podem editar reservas existentes.',
         'Ação Não Autorizada'
       );
       return;
@@ -338,13 +383,14 @@ export default function App() {
     data: Omit<Reservation, 'id' | 'criadoEm'> & { id?: string }
   ) => {
     const operatorFirstName = currentUser?.primeiroNome || 'Operador';
+    const operatorCpf = currentUser?.cpf || '';
     const nowIso = new Date().toISOString();
 
     if (data.id) {
       if (!canEditOrDelete(currentUser)) {
         addToast(
           'error',
-          'Operação Bloqueada: É necessário estar autenticado para editar reservas.',
+          'Operação Bloqueada: Apenas usuários autenticados com Senha Master podem editar reservas.',
           'Sem Permissão'
         );
         return;
@@ -352,6 +398,7 @@ export default function App() {
       const payload = {
         ...data,
         modificadoPor: operatorFirstName,
+        modificadoPorCpf: operatorCpf,
         modificadoEm: nowIso,
       };
 
@@ -386,7 +433,9 @@ export default function App() {
       const payload = {
         ...data,
         criadoPor: operatorFirstName,
+        criadoPorCpf: operatorCpf,
         modificadoPor: operatorFirstName,
+        modificadoPorCpf: operatorCpf,
         modificadoEm: nowIso,
       };
 
@@ -508,6 +557,7 @@ export default function App() {
       glpi: '',
       sala: '',
       setor: '',
+      filial: '',
       mostrarEncerradas: false,
     });
   };
@@ -586,17 +636,20 @@ export default function App() {
         onOpenAnalyticsModal={() => setIsAnalyticsModalOpen(true)}
         onOpenSectorManagerModal={() => setIsSectorManagerModalOpen(true)}
         onOpenRoomManagerModal={() => setIsRoomManagerModalOpen(true)}
+        onOpenBranchManagerModal={() => setIsBranchManagerOpen(true)}
+        filiaisList={filiais}
         onOpenSupabaseModal={() => setIsSupabaseModalOpen(true)}
         isSupabaseLive={isSupabaseLive}
         filters={filters}
         nextCount={nextReservationsCount}
+        onSelectFilial={(filial) => setFilters((prev) => ({ ...prev, filial }))}
       />
 
       {/* Conteúdo Principal */}
       <main className="flex-1 w-full max-w-[1600px] mx-auto px-3 sm:px-5 lg:px-8 py-4">
         {/* Banner Reduzido e Focado nas Próximas Reservas */}
         <NextReservationsBanner
-          reservations={reservations}
+          reservations={filteredReservations}
           onOpenNewModal={() => handleOpenAddModal()}
           onOpenFilterModal={() => setIsFilterModalOpen(true)}
           onOpenNotificationCenter={() => setIsNotificationCenterOpen(true)}
@@ -616,8 +669,12 @@ export default function App() {
         {/* View Selection: Timeline Grid vs. Table List */}
         {activeView === 'timeline' ? (
           <RoomTimelineView
-            reservations={reservations}
-            rooms={rooms}
+            reservations={filteredReservations}
+            rooms={
+              filters.filial && filters.filial.trim()
+                ? rooms.filter((r) => r.filial.toLowerCase().trim() === filters.filial.toLowerCase().trim())
+                : rooms
+            }
             onSelectReservation={handleOpenDetailModal}
             onCreateSlot={(roomName, date, startHour) => {
               handleOpenAddModal({
@@ -644,6 +701,7 @@ export default function App() {
               filters.glpi ||
               filters.sala ||
               filters.setor ||
+              filters.filial ||
               filters.mostrarEncerradas
             )}
             onResetFilters={handleResetFilters}
@@ -784,6 +842,16 @@ export default function App() {
         onClose={() => setIsRoomManagerModalOpen(false)}
         onRoomsUpdated={(updatedRooms) => setRooms(updatedRooms)}
         existingReservations={reservations}
+      />
+
+      {/* Modal de Gerenciamento e Registro de Filiais */}
+      <BranchManagerModal
+        isOpen={isBranchManagerOpen}
+        onClose={() => setIsBranchManagerOpen(false)}
+        onFiliaisUpdated={(updatedFiliais) => setFiliais(updatedFiliais)}
+        existingSalas={rooms}
+        existingReservations={reservations}
+        currentUser={currentUser}
       />
 
       {/* Modal de Passo a Passo & Tira-Dúvidas com IA */}

@@ -22,7 +22,7 @@ export const ReportModal: React.FC<ReportModalProps> = ({
   const handleExportCSV = () => {
     if (reservations.length === 0) return;
 
-    const headers = ['DIA', 'SALA', 'HORA INICIAL', 'HORA FINAL', 'SOLICITANTE', 'SETOR', 'GLPI', 'OBSERVACOES'];
+    const headers = ['DIA', 'SALA', 'HORA INICIAL', 'HORA FINAL', 'SOLICITANTE', 'SETOR', 'GLPI', 'CADASTRADO POR (CPF)', 'OBSERVACOES'];
     const rows = reservations.map((r) => [
       formatDateBR(r.dia),
       `"${r.sala}"`,
@@ -31,6 +31,7 @@ export const ReportModal: React.FC<ReportModalProps> = ({
       `"${r.solicitante}"`,
       `"${r.setor}"`,
       `"#${r.glpi}"`,
+      `"${r.criadoPor || 'Operador'}${r.criadoPorCpf ? ` - CPF: ${r.criadoPorCpf}` : ''}"`,
       `"${(r.observacoes || '').replace(/"/g, '""')}"`,
     ]);
 
@@ -152,13 +153,14 @@ export const ReportModal: React.FC<ReportModalProps> = ({
                 <th className="py-2.5 px-3 border-r border-[#AD2F3B]">HORÁRIO</th>
                 <th className="py-2.5 px-3 border-r border-[#AD2F3B]">SOLICITANTE</th>
                 <th className="py-2.5 px-3 border-r border-[#AD2F3B]">SETOR</th>
-                <th className="py-2.5 px-3 text-white">GLPI</th>
+                <th className="py-2.5 px-3 border-r border-[#AD2F3B]">GLPI</th>
+                <th className="py-2.5 px-3 text-white">CADASTRADO POR (CPF)</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-200/80 font-dm-sans">
               {reservations.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="py-8 text-center text-slate-500 font-medium">
+                  <td colSpan={7} className="py-8 text-center text-slate-500 font-medium">
                     Nenhuma reserva cadastrada para os filtros informados.
                   </td>
                 </tr>
@@ -170,7 +172,13 @@ export const ReportModal: React.FC<ReportModalProps> = ({
                     <td className="py-2.5 px-3 border-r border-slate-200 font-mono font-bold">{r.horaInicial} — {r.horaFinal}</td>
                     <td className="py-2.5 px-3 border-r border-slate-200 font-medium">{r.solicitante}</td>
                     <td className="py-2.5 px-3 border-r border-slate-200">{r.setor}</td>
-                    <td className="py-2.5 px-3 font-mono font-bold text-[#7D1416]">#{r.glpi}</td>
+                    <td className="py-2.5 px-3 border-r border-slate-200 font-mono font-bold text-[#7D1416]">#{r.glpi}</td>
+                    <td className="py-2.5 px-3 font-dm-sans">
+                      <span className="font-semibold text-slate-800">{r.criadoPor || 'Operador'}</span>
+                      {r.criadoPorCpf && (
+                        <span className="block text-[10px] text-slate-500 font-mono">CPF {r.criadoPorCpf}</span>
+                      )}
+                    </td>
                   </tr>
                 ))
               )}

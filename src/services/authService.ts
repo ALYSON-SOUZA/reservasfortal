@@ -1,20 +1,26 @@
 import { AppUser, UserRole } from '../types';
-import { MASTER_CPF, MASTER_PASSWORD, isMasterCpf, verifyMasterCredentials, cleanCPF } from '../utils/rbac';
+import {
+  isMasterCpf,
+  verifyMasterCredentials,
+  findMasterUser,
+  getMasterPassword,
+  updateMasterPassword,
+  cleanCPF,
+  normalizeCPF,
+} from '../utils/rbac';
 
 const USER_SESSION_KEY = 'bellinati_reserva_user_session_v1';
 
 // Helper to format CPF as 000.000.000-00
 export function formatCPF(value: string): string {
-  const digits = value.replace(/\D/g, '').slice(0, 11);
-  if (digits.length <= 3) return digits;
-  if (digits.length <= 6) return `${digits.slice(0, 3)}.${digits.slice(3)}`;
-  if (digits.length <= 9) return `${digits.slice(0, 3)}.${digits.slice(3, 6)}.${digits.slice(6)}`;
+  const digits = cleanCPF(value).padStart(11, '0').slice(0, 11);
   return `${digits.slice(0, 3)}.${digits.slice(3, 6)}.${digits.slice(6, 9)}-${digits.slice(9, 11)}`;
 }
 
-// Basic CPF validation
+// Basic CPF validation with leading-zero normalization
 export function isValidCPF(cpfRaw: string): boolean {
-  const cpf = cpfRaw.replace(/\D/g, '');
+  if (isMasterCpf(cpfRaw)) return true;
+  const cpf = normalizeCPF(cpfRaw);
   if (cpf.length !== 11) return false;
   
   // Check known invalid sequences
@@ -57,7 +63,7 @@ export const authService = {
         const user: AppUser = JSON.parse(stored);
         if (user && user.nome && user.cpf) {
           const digits = cleanCPF(user.cpf);
-          const computedRole: UserRole = user.role || (digits === MASTER_CPF ? 'MASTER' : 'COMMON');
+          const computedRole: UserRole = isMasterCpf(digits) ? 'MASTER' : (user.role || 'COMMON');
           return {
             ...user,
             primeiroNome: user.primeiroNome || extractFirstName(user.nome),
@@ -73,21 +79,24 @@ export const authService = {
 
   /**
    * Realiza a autenticação aplicando a validação de privilégios RBAC:
-   * - CPF Master (61881619320): Exige senha '@mouraS0501' e concede role 'MASTER'.
-   * - Demais CPFs: Role 'COMMON' (usuário operacional comum).
+   * - CPFs Master Oficiais: Exige validação estrita da respectiva Senha Master.
+   * - Demais CPFs: Role 'COMMON' (usuário operacional comum, sem exigência de senha).
    */
   login(cpf: string, nome: string, password?: string): AppUser {
     const rawDigits = cleanCPF(cpf);
     const isMaster = isMasterCpf(rawDigits);
+    const masterObj = findMasterUser(rawDigits);
 
     if (isMaster) {
-      if (!password || password !== MASTER_PASSWORD) {
-        throw new Error('Senha Master incorreta. Verifique suas credenciais de administrador.');
+      if (!password || !verifyMasterCredentials(rawDigits, password)) {
+        throw new Error(
+          `Senha Master incorreta para ${masterObj?.nome || 'o usuário Master'}. Verifique as credenciais ou utilize a Recuperação de Senha Master.`
+        );
       }
     }
 
     const formattedCpf = formatCPF(rawDigits);
-    const cleanedNome = nome.trim() || (isMaster ? 'Gestor Master Bellinati' : 'Colaborador');
+    const cleanedNome = masterObj?.nome || nome.trim() || 'Colaborador';
     const primeiroNome = extractFirstName(cleanedNome);
     const role: UserRole = isMaster ? 'MASTER' : 'COMMON';
 
@@ -106,6 +115,42 @@ export const authService = {
     }
 
     return user;
+  },
+
+  /**
+   * Recuperação restrita de senha exclusiva para usuários Master
+   */
+  recoverMasterPassword(cpfRaw: string): { success: boolean; password?: string; message: string; masterName?: string } {
+    const master = findMasterUser(cpfRaw);
+    if (!master) {
+      return {
+        success: false,
+        message: 'O CPF informado não possui privilégios de Usuário Master cadastrados no sistema.',
+      };
+    }
+
+    const currentPassword = getMasterPassword(cpfRaw);
+    return {
+      success: true,
+      password: currentPassword,
+      masterName: master.nome,
+      message: `Credencial Master localizada para ${master.nome}.`,
+    };
+  },
+
+  /**
+   * Redefinição de senha exclusiva para usuários Master
+   */
+  resetMasterPassword(cpfRaw: string, newPassword: string): { success: boolean; message: string } {
+    if (!newPassword || newPassword.trim().length < 4) {
+      return { success: false, message: 'A nova senha deve possuir no mínimo 4 caracteres.' };
+    }
+
+    const updated = updateMasterPassword(cpfRaw, newPassword.trim());
+    if (updated) {
+      return { success: true, message: 'Senha Master redefinida com sucesso!' };
+    }
+    return { success: false, message: 'Não foi possível atualizar a senha deste usuário Master.' };
   },
 
   logout(): void {

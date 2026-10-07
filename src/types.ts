@@ -12,6 +12,7 @@ export interface Reservation {
   id: string;
   dia: string; // YYYY-MM-DD
   sala: string;
+  filial?: string; // Unidade/Filial da reserva
   horaInicial: string; // HH:mm
   horaFinal: string; // HH:mm
   solicitante: string;
@@ -20,8 +21,32 @@ export interface Reservation {
   observacoes?: string;
   criadoEm: string;
   criadoPor?: string;
+  criadoPorCpf?: string; // CPF do operador responsável pelo cadastro (Rastreabilidade)
   modificadoPor?: string;
+  modificadoPorCpf?: string;
   modificadoEm?: string;
+}
+
+export interface FilialInfo {
+  id: string;
+  nome: string;
+  isMatriz: boolean;
+  cidade: string;
+  badge?: string;
+}
+
+export interface Filial {
+  id: string;
+  nome: string; // Campo Filial / Nome da Unidade (Obrigatório)
+  cidade: string; // Cidade (Obrigatório)
+  estado: string; // UF / Estado (Obrigatório)
+  endereco: string; // Endereço / Localização (Obrigatório)
+  responsavel: string; // Responsável / Facilities (Obrigatório)
+  observacoes?: string; // Observações Gerais (ÚNICO CAMPO OPCIONAL)
+  isMatriz: boolean;
+  ativa: boolean;
+  criadaEm: string;
+  modificadoPor?: string;
 }
 
 export interface Sala {
@@ -74,6 +99,7 @@ export interface FilterOptions {
   glpi: string;
   sala: string;
   setor: string;
+  filial: string;
   mostrarEncerradas: boolean;
 }
 

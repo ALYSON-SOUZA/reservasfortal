@@ -54,6 +54,7 @@ export interface DbReservation {
   id: string;
   dia: string;
   sala: string;
+  filial?: string | null;
   hora_inicial: string;
   hora_final: string;
   solicitante: string;
@@ -70,6 +71,7 @@ export const toAppReservation = (db: DbReservation): Reservation => ({
   id: db.id,
   dia: db.dia,
   sala: db.sala,
+  filial: db.filial || undefined,
   horaInicial: db.hora_inicial,
   horaFinal: db.hora_final,
   solicitante: db.solicitante,
@@ -88,6 +90,7 @@ export const toDbReservation = (
   ...(app.id ? { id: app.id } : {}),
   dia: app.dia,
   sala: app.sala,
+  filial: app.filial || null,
   hora_inicial: app.horaInicial,
   hora_final: app.horaFinal,
   solicitante: app.solicitante,
