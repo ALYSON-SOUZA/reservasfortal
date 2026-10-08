@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   Building2,
   User,
@@ -12,11 +12,11 @@ import {
   EyeOff,
   X,
   Crown,
+  Sparkles,
 } from 'lucide-react';
 import { authService, formatCPF, isValidCPF, extractFirstName } from '../services/authService';
 import {
   findMasterUser,
-  isMasterCpf,
   cleanCPF,
 } from '../utils/rbac';
 import { loginRateLimiter, RateLimitStatus } from '../utils/rateLimiter';
@@ -33,6 +33,8 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess }) => {
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+
+  const cpfInputRef = useRef<HTMLInputElement>(null);
 
   // Rate Limiting por IP para Proteção contra Força Bruta (LGPD Art. 46)
   const [rateStatus, setRateStatus] = useState<RateLimitStatus>({
@@ -59,14 +61,24 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess }) => {
 
   // Inicializa verificação de Rate Limit por IP ao carregar tela
   useEffect(() => {
+    let isMounted = true;
     const fetchRateStatus = async () => {
-      const status = await loginRateLimiter.getStatus();
-      setRateStatus(status);
-      if (status.isBlocked && status.lockoutSeconds > 0) {
-        setCountdown(status.lockoutSeconds);
+      try {
+        const status = await loginRateLimiter.getStatus();
+        if (isMounted) {
+          setRateStatus(status);
+          if (status.isBlocked && status.lockoutSeconds > 0) {
+            setCountdown(status.lockoutSeconds);
+          }
+        }
+      } catch (e) {
+        console.error('Erro ao consultar rate limiter:', e);
       }
     };
     fetchRateStatus();
+    return () => {
+      isMounted = false;
+    };
   }, []);
 
   // Timer decrescente de bloqueio temporário
@@ -100,10 +112,39 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess }) => {
     }
   }, [detectedMaster]);
 
+  // Manipulador seguro e fluido de digitação do CPF
   const handleCpfChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const rawVal = e.target.value;
-    const masked = formatCPF(rawVal);
-    setCpf(masked);
+    const digits = cleanCPF(rawVal).slice(0, 11);
+    const formatted = formatCPF(digits);
+    setCpf(formatted);
+    if (error) setError(null);
+  };
+
+  // Suporte aprimorado ao Backspace para não travar na pontuação (. ou -)
+  const handleCpfKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Backspace') {
+      const target = e.currentTarget;
+      const { selectionStart, selectionEnd } = target;
+      if (selectionStart && selectionStart === selectionEnd) {
+        const charBefore = cpf[selectionStart - 1];
+        if (charBefore === '.' || charBefore === '-') {
+          e.preventDefault();
+          const digits = cleanCPF(cpf);
+          const subBefore = cleanCPF(cpf.slice(0, selectionStart));
+          const newDigits = subBefore.slice(0, -1) + cleanCPF(cpf.slice(selectionStart));
+          setCpf(formatCPF(newDigits));
+        }
+      }
+    }
+  };
+
+  // Suporte à colagem (paste) de CPF com ou sem formatação
+  const handleCpfPaste = (e: React.ClipboardEvent<HTMLInputElement>) => {
+    e.preventDefault();
+    const pastedText = e.clipboardData.getData('text');
+    const digits = cleanCPF(pastedText).slice(0, 11);
+    setCpf(formatCPF(digits));
     if (error) setError(null);
   };
 
@@ -125,12 +166,13 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess }) => {
     const normalizedDigits = digitsOnly.length === 10 ? digitsOnly.padStart(11, '0') : digitsOnly;
 
     if (!normalizedDigits || normalizedDigits.length < 11) {
-      setError('Por favor, informe um CPF completo com 11 dígitos.');
+      setError('Por favor, digite seu CPF completo com 11 dígitos.');
+      cpfInputRef.current?.focus();
       return;
     }
 
     if (!isValidCPF(normalizedDigits)) {
-      setError('O CPF informado possui formato ou dígitos inválidos.');
+      setError('O CPF informado possui dígitos inválidos ou todos iguais.');
       return;
     }
 
@@ -150,7 +192,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess }) => {
     // Validação preventiva de bloqueio por IP (LGPD Art. 46)
     if (rateStatus.isBlocked || countdown > 0) {
       setError(
-        `🔒 Acesso bloqueado por segurança (LGPD): Limite de 5 tentativas por IP excedido para prevenir ataques de força bruta. Aguarde ${loginRateLimiter.formatSeconds(countdown || rateStatus.lockoutSeconds)} para tentar novamente a partir do IP ${rateStatus.clientIp}.`
+        `🔒 Acesso temporariamente bloqueado (LGPD): Limite de 5 tentativas por IP excedido para prevenir ataques de força bruta. Aguarde ${loginRateLimiter.formatSeconds(countdown || rateStatus.lockoutSeconds)} para tentar novamente a partir do IP ${rateStatus.clientIp}.`
       );
       return;
     }
@@ -175,7 +217,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess }) => {
         );
       } else {
         setError(
-          `${err.message || 'Falha ao autenticar.'} (Tentativa ${updated.attempts} de 5 permitidas para o IP ${updated.clientIp} antes do bloqueio)`
+          `${err.message || 'Falha ao autenticar.'} (Tentativa ${updated.attempts} de 5 permitidas para o IP ${updated.clientIp} antes do bloqueio temporário)`
         );
       }
     }
@@ -270,7 +312,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess }) => {
                 </div>
                 <p className="text-xs text-rose-800 leading-relaxed mb-2.5">
                   Limite de <strong>5 tentativas de autenticação</strong> atingido para o IP <strong>{rateStatus.clientIp}</strong>.
-                  Para prevenir ataques de força bruta aos dados dos colaboradores, novas tentativas estão temporariamente bloqueadas.
+                  Para prevenir ataques de força bruta aos dados dos colaboradores, novas tentativas de acesso estão temporariamente bloqueadas.
                 </p>
                 <div className="flex items-center justify-between p-2 rounded-xl bg-white/80 border border-rose-200">
                   <span className="text-[11px] font-semibold text-rose-800">⏳ Tempo restante para desbloqueio:</span>
@@ -283,34 +325,57 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess }) => {
 
             {/* Mensagem de Erro */}
             {error && !rateStatus.isBlocked && countdown <= 0 && (
-              <div className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-800 text-xs font-semibold flex items-start gap-2">
+              <div className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-800 text-xs font-semibold flex items-start gap-2 animate-in fade-in">
                 <AlertCircle className="w-4 h-4 text-[#AD2F3B] shrink-0 mt-0.5" />
                 <span>{error}</span>
               </div>
             )}
 
-            {/* Input CPF */}
+            {/* Input CPF com Digitação Livre e Fluida */}
             <div>
-              <label htmlFor="login-cpf" className="block text-xs font-bold text-slate-700 mb-1.5 font-raleway">
-                CPF *
-              </label>
+              <div className="flex items-center justify-between mb-1.5">
+                <label htmlFor="login-cpf" className="block text-xs font-bold text-slate-700 font-raleway">
+                  CPF *
+                </label>
+                {cpf && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setCpf('');
+                      if (detectedMaster) setNome('');
+                      setError(null);
+                      cpfInputRef.current?.focus();
+                    }}
+                    className="text-[11px] text-slate-400 hover:text-slate-600 font-medium cursor-pointer"
+                  >
+                    Limpar
+                  </button>
+                )}
+              </div>
               <div className="relative">
                 <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400">
                   <ShieldCheck className="w-4 h-4 text-slate-400" />
                 </div>
                 <input
+                  ref={cpfInputRef}
                   id="login-cpf"
                   type="text"
+                  inputMode="numeric"
+                  autoComplete="off"
                   required
-                  disabled={rateStatus.isBlocked || countdown > 0}
                   value={cpf}
                   onChange={handleCpfChange}
+                  onKeyDown={handleCpfKeyDown}
+                  onPaste={handleCpfPaste}
                   placeholder="000.000.000-00"
                   maxLength={14}
                   autoFocus
-                  className="w-full pl-10 pr-4 py-3 rounded-xl border-2 border-slate-200 focus:border-[#AD2F3B] focus:ring-4 focus:ring-[#AD2F3B]/15 outline-hidden transition text-sm font-mono font-bold text-slate-800 placeholder-slate-400 bg-slate-50/50 focus:bg-white disabled:opacity-60 disabled:cursor-not-allowed"
+                  className="w-full pl-10 pr-4 py-3 rounded-xl border-2 border-slate-200 focus:border-[#AD2F3B] focus:ring-4 focus:ring-[#AD2F3B]/15 outline-hidden transition text-sm font-mono font-bold text-slate-800 placeholder-slate-400 bg-slate-50/50 focus:bg-white"
                 />
               </div>
+              <p className="text-[10px] text-slate-400 font-dm-sans mt-1">
+                Digite os 11 dígitos do seu CPF (a formatação com pontos e traço é aplicada automaticamente)
+              </p>
             </div>
 
             {/* Input Nome Completo */}
@@ -326,11 +391,10 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess }) => {
                   id="login-nome"
                   type="text"
                   required
-                  disabled={rateStatus.isBlocked || countdown > 0}
                   value={nome}
                   onChange={handleNomeChange}
                   placeholder="Informe seu nome completo"
-                  className="w-full pl-10 pr-4 py-3 rounded-xl border-2 border-slate-200 focus:border-[#AD2F3B] focus:ring-4 focus:ring-[#AD2F3B]/15 outline-hidden transition text-sm font-semibold text-slate-800 placeholder-slate-400 bg-slate-50/50 focus:bg-white font-dm-sans disabled:opacity-60 disabled:cursor-not-allowed"
+                  className="w-full pl-10 pr-4 py-3 rounded-xl border-2 border-slate-200 focus:border-[#AD2F3B] focus:ring-4 focus:ring-[#AD2F3B]/15 outline-hidden transition text-sm font-semibold text-slate-800 placeholder-slate-400 bg-slate-50/50 focus:bg-white font-dm-sans"
                 />
               </div>
               {nome.trim().length >= 3 && (
@@ -341,30 +405,38 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess }) => {
               )}
             </div>
 
-            {/* Aviso Dinâmico: Perfil Master Identificado */}
+            {/* Aviso Dinâmico: Perfil Master Reconhecido */}
             {isMasterUser && detectedMaster && (
-              <div className="p-3 rounded-xl bg-amber-50 border border-amber-300 text-amber-900 text-xs font-dm-sans flex items-center justify-between animate-in fade-in">
-                <div className="flex items-center gap-2">
-                  <Crown className="w-4 h-4 text-amber-600 shrink-0" />
-                  <span>
-                    Perfil <strong>Administrador Master</strong>: {detectedMaster.nome}
+              <div className="p-3 rounded-2xl bg-gradient-to-r from-amber-50 to-amber-100/70 border-2 border-amber-300 text-amber-950 text-xs font-dm-sans shadow-xs animate-in fade-in">
+                <div className="flex items-center justify-between mb-1">
+                  <div className="flex items-center gap-1.5 font-bold font-raleway text-amber-900 text-sm">
+                    <Crown className="w-4 h-4 text-amber-600 shrink-0" />
+                    <span>Administrador Master Reconhecido</span>
+                  </div>
+                  <span className="text-[10px] font-black uppercase tracking-wider px-2 py-0.5 rounded-full bg-amber-200 text-amber-900 border border-amber-400">
+                    Master
                   </span>
                 </div>
-                <span className="text-[10px] font-black uppercase tracking-wider px-2 py-0.5 rounded-full bg-amber-200 text-amber-900 border border-amber-300">
-                  Master
-                </span>
+                <p className="text-[11px] text-amber-900/90 leading-relaxed">
+                  Colaborador: <strong>{detectedMaster.nome}</strong>. Digite a sua senha administrativa abaixo para habilitar privilégios totais de edição e exclusão.
+                </p>
               </div>
             )}
 
             {/* Aviso Dinâmico: Acesso Livre (Sem necessidade de cadastro prévio) */}
-            {!isMasterUser && digitsOnly.length >= 11 && (
-              <div className="p-2.5 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs font-dm-sans flex items-center gap-2 animate-in fade-in">
-                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
-                <span>Acesso Livre liberado: basta informar seu nome para acessar (sem senha prévia).</span>
+            {!isMasterUser && digitsOnly.length >= 10 && (
+              <div className="p-3 rounded-2xl bg-emerald-50 border-2 border-emerald-300 text-emerald-950 text-xs font-dm-sans flex items-start gap-2.5 animate-in fade-in shadow-xs">
+                <Sparkles className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
+                <div className="flex-1 text-[11px] text-emerald-900 leading-relaxed">
+                  <strong className="block font-bold font-raleway text-emerald-950 mb-0.5">
+                    Acesso Livre Bellinati Perez
+                  </strong>
+                  Não é necessário cadastro prévio ou senha! Basta informar seu nome e CPF para consultar horários e agendar reuniões.
+                </div>
               </div>
             )}
 
-            {/* Input Senha: Exibido exclusivamente e dinamicamente quando o CPF for o Usuário Master */}
+            {/* Input Senha: Exibido exclusivamente e dinamicamente quando o CPF for Usuário Master */}
             {isMasterUser && (
               <div className="animate-in fade-in slide-in-from-top-2 duration-150 pt-1">
                 <div className="flex items-center justify-between mb-1.5">
@@ -374,14 +446,13 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess }) => {
                   </label>
                   <button
                     type="button"
-                    disabled={rateStatus.isBlocked || countdown > 0}
                     onClick={() => {
                       setRecoveryCpf(cpf);
                       setRecoveryResult(null);
                       setResetFeedback(null);
                       setIsRecoveryOpen(true);
                     }}
-                    className="text-[11px] font-bold text-[#AD2F3B] hover:text-[#7D1416] underline underline-offset-2 cursor-pointer disabled:opacity-50"
+                    className="text-[11px] font-bold text-[#AD2F3B] hover:text-[#7D1416] underline underline-offset-2 cursor-pointer"
                   >
                     Recuperar senha
                   </button>
@@ -394,12 +465,10 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess }) => {
                     id="login-senha"
                     type={showPassword ? 'text' : 'password'}
                     required
-                    disabled={rateStatus.isBlocked || countdown > 0}
                     value={password}
                     onChange={handlePasswordChange}
                     placeholder="Digite a senha de administrador master"
-                    autoFocus
-                    className="w-full pl-10 pr-10 py-3 rounded-xl border-2 border-[#AD2F3B]/40 focus:border-[#7D1416] focus:ring-4 focus:ring-[#7D1416]/15 outline-hidden transition text-sm font-mono font-bold text-slate-800 placeholder-slate-400 bg-slate-50/50 focus:bg-white disabled:opacity-60 disabled:cursor-not-allowed"
+                    className="w-full pl-10 pr-10 py-3 rounded-xl border-2 border-[#AD2F3B]/40 focus:border-[#7D1416] focus:ring-4 focus:ring-[#7D1416]/15 outline-hidden transition text-sm font-mono font-bold text-slate-800 placeholder-slate-400 bg-slate-50/50 focus:bg-white"
                   />
                   <button
                     type="button"
@@ -456,7 +525,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess }) => {
           {/* Rodapé Interno */}
           <div className="mt-5 pt-4 border-t border-slate-100 flex items-center justify-center gap-1.5 text-[11px] text-slate-500 text-center font-dm-sans">
             <ShieldCheck className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-            <span>Sistema Seguro Bellinati Perez • Acesso por CPF</span>
+            <span>Sistema Seguro Bellinati Perez • Acesso Livre & RBAC</span>
           </div>
         </div>
 
@@ -478,10 +547,10 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess }) => {
                 </div>
                 <div>
                   <h3 className="font-bold font-raleway text-base text-white">
-                    Recuperação de Senha
+                    Recuperação de Senha Master
                   </h3>
                   <p className="text-[11px] text-[#EAEAEA]/80 font-dm-sans">
-                    Validação de credencial de acesso
+                    Validação de credencial administrativa
                   </p>
                 </div>
               </div>
@@ -506,15 +575,16 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess }) => {
                     type="text"
                     required
                     value={recoveryCpf}
-                    onChange={(e) => setRecoveryCpf(formatCPF(e.target.value))}
+                    onChange={(e) => setRecoveryCpf(formatCPF(cleanCPF(e.target.value).slice(0, 11)))}
                     placeholder="000.000.000-00"
+                    maxLength={14}
                     className="w-full px-3.5 py-2.5 text-sm font-mono font-bold border-2 border-slate-200 rounded-xl focus:border-[#AD2F3B] focus:ring-2 focus:ring-[#AD2F3B]/15 outline-hidden"
                   />
                 </div>
 
                 <button
                   type="submit"
-                  className="w-full py-2.5 px-4 rounded-xl bg-[#7D1416] hover:bg-[#AD2F3B] text-white text-xs font-bold font-raleway transition cursor-pointer flex items-center justify-center gap-1.5"
+                  className="w-full py-2.5 px-4 rounded-xl bg-[#7D1416] hover:bg-[#AD2F3B] text-white text-xs font-bold font-raleway transition cursor-pointer flex items-center justify-center gap-1.5 shadow-sm"
                 >
                   <KeyRound className="w-4 h-4" />
                   <span>Verificar Credencial</span>

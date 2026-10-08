@@ -36,6 +36,7 @@ interface ReservationDetailModalProps {
   onClose: () => void;
   onEdit: (reservation: Reservation) => void;
   onDelete: (reservation: Reservation) => void;
+  onViewUserProfile?: (solicitante: string) => void;
 }
 
 export const ReservationDetailModal: React.FC<ReservationDetailModalProps> = ({
@@ -47,6 +48,7 @@ export const ReservationDetailModal: React.FC<ReservationDetailModalProps> = ({
   onClose,
   onEdit,
   onDelete,
+  onViewUserProfile,
 }) => {
   const [copiedSummary, setCopiedSummary] = useState(false);
   const [copiedGlpi, setCopiedGlpi] = useState(false);
@@ -402,9 +404,21 @@ export const ReservationDetailModal: React.FC<ReservationDetailModalProps> = ({
                 {reservation.solicitante ? reservation.solicitante.charAt(0).toUpperCase() : <User className="w-5 h-5" />}
               </div>
               <div className="min-w-0 flex-1">
-                <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block">
-                  Solicitante & Setor
-                </span>
+                <div className="flex items-center justify-between">
+                  <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block">
+                    Solicitante & Setor
+                  </span>
+                  {onViewUserProfile && (
+                    <button
+                      type="button"
+                      onClick={() => onViewUserProfile(reservation.solicitante)}
+                      className="text-[11px] text-[#AD2F3B] hover:text-[#7D1416] font-bold underline underline-offset-2 cursor-pointer flex items-center gap-1"
+                    >
+                      <User className="w-3 h-3" />
+                      <span>Ver Perfil</span>
+                    </button>
+                  )}
+                </div>
                 <div className="font-bold text-[#252A34] text-sm sm:text-base font-raleway truncate">
                   {reservation.solicitante}
                 </div>

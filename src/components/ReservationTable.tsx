@@ -38,6 +38,7 @@ interface ReservationTableProps {
   onDelete: (reservation: Reservation) => void;
   onAddNew: () => void;
   onViewDetails?: (reservation: Reservation) => void;
+  onViewUserProfile?: (solicitante: string) => void;
   hasActiveFilters?: boolean;
   onResetFilters?: () => void;
 }
@@ -50,6 +51,7 @@ export const ReservationTable: React.FC<ReservationTableProps> = ({
   onDelete,
   onAddNew,
   onViewDetails,
+  onViewUserProfile,
   hasActiveFilters,
   onResetFilters,
 }) => {
@@ -277,10 +279,17 @@ export const ReservationTable: React.FC<ReservationTableProps> = ({
                 </div>
 
                 <div className="flex items-center justify-between text-slate-700 pt-1">
-                  <div className="flex items-center gap-2">
-                    <User className="w-3.5 h-3.5 text-slate-400" />
-                    <span className="font-semibold text-[#252A34]">{res.solicitante}</span>
-                  </div>
+                  <button
+                    type="button"
+                    onClick={() => onViewUserProfile?.(res.solicitante)}
+                    title={`Ver detalhes do perfil de ${res.solicitante}`}
+                    className="flex items-center gap-2 hover:text-[#7D1416] transition-colors cursor-pointer text-left group"
+                  >
+                    <User className="w-3.5 h-3.5 text-slate-400 group-hover:text-[#7D1416]" />
+                    <span className="font-semibold text-[#252A34] group-hover:underline underline-offset-2">
+                      {res.solicitante}
+                    </span>
+                  </button>
                   {(res.modificadoPor || res.criadoPor) && (
                     <span className="text-[10px] text-slate-500 bg-slate-100 px-1.5 py-0.5 rounded-md border border-slate-200" title={`Modificado em ${formatDateTimeBR(res.modificadoEm || res.criadoEm)}`}>
                       Modif: <strong>{res.modificadoPor || res.criadoPor}</strong> ({formatShortAuditDate(res.modificadoEm || res.criadoEm)})
@@ -409,17 +418,22 @@ export const ReservationTable: React.FC<ReservationTableProps> = ({
                       </div>
                     </td>
 
-                    {/* SOLICITANTE */}
+                    {/* SOLICITANTE COM POPUP DE PERFIL */}
                     <td className="py-2.5 px-3 align-middle overflow-hidden">
                       <div className="min-w-0">
-                        <div className="flex items-center gap-1.5 min-w-0" title={res.solicitante}>
-                          <div className={`w-5 h-5 rounded-full flex items-center justify-center font-bold text-[10px] shrink-0 ${hasConflict && isPriority ? 'bg-emerald-200 text-emerald-900' : 'bg-slate-200 text-[#7D1416]'}`}>
+                        <button
+                          type="button"
+                          onClick={() => onViewUserProfile?.(res.solicitante)}
+                          title={`Ver perfil e permissões de ${res.solicitante}`}
+                          className="flex items-center gap-1.5 min-w-0 text-left hover:text-[#7D1416] transition-colors cursor-pointer group"
+                        >
+                          <div className={`w-5 h-5 rounded-full flex items-center justify-center font-bold text-[10px] shrink-0 group-hover:ring-2 group-hover:ring-[#AD2F3B]/30 transition ${hasConflict && isPriority ? 'bg-emerald-200 text-emerald-900' : 'bg-slate-200 text-[#7D1416]'}`}>
                             {res.solicitante.charAt(0).toUpperCase()}
                           </div>
-                          <span className="font-semibold text-[#252A34] truncate text-xs sm:text-sm">
+                          <span className="font-semibold text-[#252A34] group-hover:text-[#7D1416] group-hover:underline underline-offset-2 truncate text-xs sm:text-sm">
                             {res.solicitante}
                           </span>
-                        </div>
+                        </button>
                         {(res.modificadoPor || res.criadoPor) && (
                           <div
                             className="flex items-center gap-1 text-[10px] text-slate-500 font-medium truncate mt-0.5"

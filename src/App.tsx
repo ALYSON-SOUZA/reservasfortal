@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
-import { Reservation, FilterOptions, Sala, Setor, ToastNotification, AppUser, Filial } from './types';
+import { Reservation, FilterOptions, Sala, Setor, ToastNotification, AppUser, Filial, UserRole } from './types';
 import { Header } from './components/Header';
 import { NextReservationsBanner } from './components/NextReservationsBanner';
 import { ActiveFilterBanner } from './components/ActiveFilterBanner';
@@ -19,16 +19,17 @@ import { HelpGuideModal } from './components/HelpGuideModal';
 import { MonthlyCalendarOverlay } from './components/MonthlyCalendarOverlay';
 import { ReservationDetailModal } from './components/ReservationDetailModal';
 import { NotificationCenterModal } from './components/NotificationCenterModal';
+import { UserProfileModal } from './components/UserProfileModal';
 import { ToastContainer } from './components/ToastContainer';
 import { LoginScreen } from './components/LoginScreen';
-import { authService } from './services/authService';
+import { authService, extractFirstName } from './services/authService';
 import { reservationService, getLocalReservations } from './services/reservationService';
 import { notificationService } from './services/notificationService';
 import { salaService } from './services/salaService';
 import { setorService } from './services/setorService';
 import { filialService } from './services/filialService';
 import { isReservationExpired, hasTimeConflict } from './utils/dateUtils';
-import { canEditOrDelete } from './utils/rbac';
+import { canEditOrDelete, MASTER_USERS } from './utils/rbac';
 
 export default function App() {
   // Sessão do usuário logado (CPF e Nome)
@@ -189,6 +190,43 @@ export default function App() {
   const [isNotificationCenterOpen, setIsNotificationCenterOpen] = useState(false);
   const [notificationStatus, setNotificationStatus] = useState<NotificationPermission | 'unsupported'>('default');
   const [isCpfMasked, setIsCpfMasked] = useState<boolean>(true);
+
+  // Modal de Ficha Cadastral e Perfil do Usuário
+  const [isUserProfileModalOpen, setIsUserProfileModalOpen] = useState(false);
+  const [userProfileTarget, setUserProfileTarget] = useState<
+    AppUser | { nome: string; cpf?: string; role?: UserRole; filial?: string } | null
+  >(null);
+
+  const handleOpenUserProfile = useCallback(
+    (userOrName: AppUser | string | { nome: string; cpf?: string; role?: UserRole; filial?: string }) => {
+      if (typeof userOrName === 'string') {
+        const cleanName = userOrName.trim();
+        const masterMatch = MASTER_USERS.find(
+          (m) => m.nome.trim().toLowerCase() === cleanName.toLowerCase()
+        );
+        if (masterMatch) {
+          setUserProfileTarget({
+            nome: masterMatch.nome,
+            cpf: masterMatch.cpfFormatado,
+            primeiroNome: extractFirstName(masterMatch.nome),
+            role: 'MASTER',
+          });
+        } else if (currentUser && currentUser.nome.trim().toLowerCase() === cleanName.toLowerCase()) {
+          setUserProfileTarget(currentUser);
+        } else {
+          setUserProfileTarget({
+            nome: cleanName,
+            primeiroNome: extractFirstName(cleanName),
+            role: 'COMMON',
+          });
+        }
+      } else {
+        setUserProfileTarget(userOrName);
+      }
+      setIsUserProfileModalOpen(true);
+    },
+    [currentUser]
+  );
 
   // Monitor de Inatividade (Conformidade LGPD Art. 46 - Auto-lock após 30 min)
   useEffect(() => {
@@ -651,6 +689,7 @@ export default function App() {
       <Header
         currentUser={currentUser}
         onLogout={handleLogout}
+        onOpenUserProfileModal={handleOpenUserProfile}
         onOpenNewModal={() => handleOpenAddModal()}
         onOpenAiModal={() => setIsAiModalOpen(true)}
         onOpenCalendarModal={() => setIsCalendarOverlayOpen(true)}
@@ -722,6 +761,7 @@ export default function App() {
             onDelete={handleOpenDeleteModal}
             onAddNew={() => handleOpenAddModal()}
             onViewDetails={handleOpenDetailModal}
+            onViewUserProfile={handleOpenUserProfile}
             hasActiveFilters={Boolean(
               filters.data ||
               filters.dataInicio ||
@@ -921,6 +961,7 @@ export default function App() {
         }}
         onEdit={(res) => handleOpenEditModal(res)}
         onDelete={(res) => handleOpenDeleteModal(res)}
+        onViewUserProfile={handleOpenUserProfile}
       />
 
       {/* Central de Notificações Agendadas no Navegador (15 min antes) */}
@@ -929,6 +970,21 @@ export default function App() {
         onClose={() => setIsNotificationCenterOpen(false)}
         reservations={reservations}
         onSelectReservation={handleOpenDetailModal}
+        onToast={addToast}
+      />
+
+      {/* Modal de Ficha Cadastral e Perfil do Usuário (Edição Exclusiva Master) */}
+      <UserProfileModal
+        isOpen={isUserProfileModalOpen}
+        onClose={() => {
+          setIsUserProfileModalOpen(false);
+          setUserProfileTarget(null);
+        }}
+        targetUser={userProfileTarget}
+        currentUser={currentUser}
+        onUpdateCurrentUser={(updated) => {
+          setCurrentUser(updated);
+        }}
         onToast={addToast}
       />
     </div>

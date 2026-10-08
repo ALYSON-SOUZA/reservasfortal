@@ -42,6 +42,7 @@ interface HeaderProps {
   nextCount: number;
   currentUser?: AppUser | null;
   onLogout?: () => void;
+  onOpenUserProfileModal?: (user: AppUser) => void;
   onSelectFilial?: (filial: string) => void;
   onOpenBranchManagerModal?: () => void;
   filiaisList?: Filial[];
@@ -69,6 +70,7 @@ export const Header: React.FC<HeaderProps> = ({
   filters,
   currentUser,
   onLogout,
+  onOpenUserProfileModal,
   onSelectFilial,
 }) => {
   const [currentDateTime, setCurrentDateTime] = useState<Date>(new Date());
@@ -121,49 +123,59 @@ export const Header: React.FC<HeaderProps> = ({
                   </span>
                 </div>
 
-                {/* OPERADOR LOGADO AO LADO DO NOME */}
+                {/* OPERADOR LOGADO AO LADO DO NOME COM POPUP DE PERFIL */}
                 {currentUser && (
-                  <div className="inline-flex items-center gap-2 pl-2.5 pr-1.5 py-1 rounded-xl bg-white/10 border border-white/20 text-xs">
-                    <div className="w-5 h-5 rounded-lg bg-white text-[#7D1416] font-black text-[10px] flex items-center justify-center shrink-0">
-                      {currentUser.role === 'MASTER' ? '👑' : currentUser.primeiroNome.charAt(0).toUpperCase()}
-                    </div>
-                    <div className="flex flex-col text-left leading-tight">
-                      <div className="flex items-center gap-1.5">
-                        <span className="font-bold text-white font-dm text-xs leading-none">
-                          {currentUser.primeiroNome}
-                        </span>
-                        {currentUser.role === 'MASTER' ? (
-                          <span
-                            title="Usuário Master: Privilégio total para editar e excluir reservas"
-                            className="px-1.5 py-0.2 rounded-md bg-amber-400 text-[#252A34] text-[9px] font-black uppercase tracking-wider leading-none shadow-xs"
-                          >
-                            MASTER
-                          </span>
-                        ) : (
-                          <span
-                            title="Usuário Comum: Criação de reservas e consulta liberadas"
-                            className="px-1.5 py-0.2 rounded-md bg-white/20 text-white text-[9px] font-bold uppercase tracking-wider leading-none"
-                          >
-                            COMUM
-                          </span>
-                        )}
+                  <div className="inline-flex items-center gap-1.5 pl-2 pr-1.5 py-1 rounded-xl bg-white/10 border border-white/20 text-xs hover:bg-white/15 transition shadow-xs">
+                    <button
+                      type="button"
+                      id="btn-user-profile-header"
+                      onClick={() => onOpenUserProfileModal?.(currentUser)}
+                      title={`Ver perfil e permissões de ${currentUser.nome} (${currentUser.role === 'MASTER' ? 'Administrador Master' : 'Usuário Comum'}). Clique para abrir ficha cadastral.`}
+                      className="inline-flex items-center gap-2 text-left cursor-pointer group"
+                    >
+                      <div className="w-6 h-6 rounded-lg bg-white text-[#7D1416] font-black text-[11px] flex items-center justify-center shrink-0 shadow-xs group-hover:scale-105 transition-transform">
+                        {currentUser.role === 'MASTER' ? '👑' : currentUser.primeiroNome.charAt(0).toUpperCase()}
                       </div>
-                      <div className="flex items-center gap-1 mt-0.5">
-                        <span className="text-[9px] text-[#EAEAEA]/80 font-mono leading-none">
-                          CPF {isCpfMasked ? maskCPF(currentUser.cpf) : currentUser.cpf}
-                        </span>
-                        {onToggleCpfMask && (
-                          <button
-                            type="button"
-                            onClick={onToggleCpfMask}
-                            title={isCpfMasked ? 'LGPD: CPF mascarado para privacidade. Clique para exibir.' : 'Clique para ocultar CPF'}
-                            className="text-[#EAEAEA]/70 hover:text-white p-0.5 transition cursor-pointer"
-                          >
-                            {isCpfMasked ? <EyeOff className="w-2.5 h-2.5" /> : <Eye className="w-2.5 h-2.5" />}
-                          </button>
-                        )}
+                      <div className="flex flex-col text-left leading-tight">
+                        <div className="flex items-center gap-1.5">
+                          <span className="font-bold text-white font-dm text-xs leading-none group-hover:text-amber-200 transition-colors">
+                            {currentUser.primeiroNome}
+                          </span>
+                          {currentUser.role === 'MASTER' ? (
+                            <span
+                              title="Usuário Master: Privilégio total para editar e excluir reservas"
+                              className="px-1.5 py-0.2 rounded-md bg-amber-400 text-[#252A34] text-[9px] font-black uppercase tracking-wider leading-none shadow-xs"
+                            >
+                              MASTER
+                            </span>
+                          ) : (
+                            <span
+                              title="Usuário Comum: Criação de reservas e consulta liberadas"
+                              className="px-1.5 py-0.2 rounded-md bg-white/20 text-white text-[9px] font-bold uppercase tracking-wider leading-none"
+                            >
+                              COMUM
+                            </span>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-1 mt-0.5">
+                          <span className="text-[9px] text-[#EAEAEA]/80 font-mono leading-none">
+                            CPF {isCpfMasked ? maskCPF(currentUser.cpf) : currentUser.cpf}
+                          </span>
+                        </div>
                       </div>
-                    </div>
+                    </button>
+
+                    {onToggleCpfMask && (
+                      <button
+                        type="button"
+                        onClick={onToggleCpfMask}
+                        title={isCpfMasked ? 'LGPD: CPF mascarado para privacidade. Clique para exibir.' : 'Clique para ocultar CPF'}
+                        className="text-[#EAEAEA]/70 hover:text-white p-1 transition cursor-pointer ml-0.5"
+                      >
+                        {isCpfMasked ? <EyeOff className="w-3 h-3" /> : <Eye className="w-3 h-3" />}
+                      </button>
+                    )}
+
                     {onLogout && (
                       <button
                         type="button"

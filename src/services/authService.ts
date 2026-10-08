@@ -146,4 +146,15 @@ export const authService = {
       console.error('Erro ao remover sessão de usuário:', e);
     }
   },
+
+  /**
+   * Atualiza os dados da sessão do usuário atual no localStorage
+   */
+  updateCurrentUser(user: AppUser): void {
+    try {
+      localStorage.setItem(USER_SESSION_KEY, JSON.stringify(user));
+    } catch (e) {
+      console.error('Erro ao atualizar sessão de usuário:', e);
+    }
+  },
 };
