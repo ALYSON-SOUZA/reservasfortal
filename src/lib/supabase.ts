@@ -1,5 +1,6 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import { Reservation, Sala, DbSala, Setor, DbSetor } from '../types';
+import { supabaseRateLimiter } from '../utils/rateLimiter';
 
 const supabaseUrl: string =
   import.meta.env.VITE_SUPABASE_URL ||
@@ -28,6 +29,13 @@ export const supabase: SupabaseClient | null = isSupabaseConfigured
       },
       global: {
         fetch: (url: any, options: any = {}) => {
+          // Checagem de Rate Limit para chamadas à API do Supabase (Conformidade LGPD / Proteção contra abusos)
+          const rateCheck = supabaseRateLimiter.checkLimit();
+          if (!rateCheck.allowed) {
+            console.warn('[Supabase API Rate Limiter]:', rateCheck.error);
+            return Promise.reject(new Error(rateCheck.error || 'Taxa limite de requisições ao Supabase excedida.'));
+          }
+
           // Timeout de 3500ms para evitar bloqueios ou travamentos em celulares ou conexões lentas
           const controller = new AbortController();
           const timeoutId = setTimeout(() => {

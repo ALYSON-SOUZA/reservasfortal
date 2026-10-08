@@ -16,6 +16,208 @@ async function startServer() {
   app.use(express.json({ limit: "25mb" }));
   app.use(express.urlencoded({ extended: true, limit: "25mb" }));
 
+  // Helper to extract clean client IP
+  const getClientIp = (req: express.Request): string => {
+    const forwarded = req.headers["x-forwarded-for"];
+    if (typeof forwarded === "string" && forwarded) {
+      return forwarded.split(",")[0].trim();
+    }
+    return req.ip || req.socket.remoteAddress || "127.0.0.1";
+  };
+
+  // ==========================================
+  // RATE LIMITING & BRUTE FORCE PROTECTION (LGPD ART. 46)
+  // ==========================================
+
+  // 1. Login Attempts by IP (Proteção de Autenticação contra Força Bruta)
+  interface IpLoginTracker {
+    attempts: number;
+    firstAttemptAt: number;
+    lastAttemptAt: number;
+    blockedUntil: number | null;
+  }
+
+  const loginAttemptsByIp = new Map<string, IpLoginTracker>();
+  const MAX_LOGIN_ATTEMPTS = 5;
+  const LOGIN_WINDOW_MS = 15 * 60 * 1000; // 15 minutos
+  const LOGIN_LOCKOUT_MS = 15 * 60 * 1000; // 15 minutos de bloqueio
+
+  // Limpeza periódica de IPs expirados da memória
+  setInterval(() => {
+    const now = Date.now();
+    for (const [ip, tracker] of loginAttemptsByIp.entries()) {
+      if (tracker.blockedUntil && tracker.blockedUntil < now && now - tracker.lastAttemptAt > LOGIN_WINDOW_MS) {
+        loginAttemptsByIp.delete(ip);
+      } else if (!tracker.blockedUntil && now - tracker.firstAttemptAt > LOGIN_WINDOW_MS) {
+        loginAttemptsByIp.delete(ip);
+      }
+    }
+  }, 60000);
+
+  // Status de Rate Limit por IP (Consulta da tela de login)
+  app.get("/api/auth/rate-limit-status", (req, res) => {
+    const ip = getClientIp(req);
+    const now = Date.now();
+    const tracker = loginAttemptsByIp.get(ip);
+
+    if (tracker && tracker.blockedUntil && tracker.blockedUntil > now) {
+      const lockoutSeconds = Math.ceil((tracker.blockedUntil - now) / 1000);
+      return res.status(429).json({
+        clientIp: ip,
+        isBlocked: true,
+        lockoutSeconds,
+        remainingAttempts: 0,
+        maxAttempts: MAX_LOGIN_ATTEMPTS,
+        attempts: tracker.attempts,
+        message: `Bloqueio de Segurança LGPD ativo. Limite de 5 tentativas atingido neste IP. Aguarde ${lockoutSeconds}s.`,
+      });
+    }
+
+    if (tracker && tracker.blockedUntil && tracker.blockedUntil <= now) {
+      // Bloqueio expirou
+      loginAttemptsByIp.delete(ip);
+    }
+
+    const currentAttempts = tracker?.attempts || 0;
+    const remaining = Math.max(0, MAX_LOGIN_ATTEMPTS - currentAttempts);
+
+    return res.json({
+      clientIp: ip,
+      isBlocked: false,
+      lockoutSeconds: 0,
+      remainingAttempts: remaining,
+      maxAttempts: MAX_LOGIN_ATTEMPTS,
+      attempts: currentAttempts,
+    });
+  });
+
+  // Registrar tentativa de autenticação por IP (falha ou sucesso)
+  app.post("/api/auth/record-attempt", (req, res) => {
+    const ip = getClientIp(req);
+    const { success } = req.body;
+    const now = Date.now();
+    let tracker = loginAttemptsByIp.get(ip);
+
+    // Se a autenticação foi bem-sucedida, limpa o contador do IP
+    if (success) {
+      loginAttemptsByIp.delete(ip);
+      return res.json({
+        clientIp: ip,
+        isBlocked: false,
+        lockoutSeconds: 0,
+        remainingAttempts: MAX_LOGIN_ATTEMPTS,
+        maxAttempts: MAX_LOGIN_ATTEMPTS,
+        attempts: 0,
+        message: "Autenticação autorizada. Contador resetado.",
+      });
+    }
+
+    // Se o IP já estiver bloqueado
+    if (tracker && tracker.blockedUntil && tracker.blockedUntil > now) {
+      const lockoutSeconds = Math.ceil((tracker.blockedUntil - now) / 1000);
+      return res.status(429).json({
+        clientIp: ip,
+        isBlocked: true,
+        lockoutSeconds,
+        remainingAttempts: 0,
+        maxAttempts: MAX_LOGIN_ATTEMPTS,
+        attempts: tracker.attempts,
+        message: `Acesso bloqueado por segurança (LGPD). Restam ${lockoutSeconds}s para desbloqueio.`,
+      });
+    }
+
+    if (!tracker || (now - tracker.firstAttemptAt > LOGIN_WINDOW_MS && (!tracker.blockedUntil || tracker.blockedUntil <= now))) {
+      tracker = {
+        attempts: 1,
+        firstAttemptAt: now,
+        lastAttemptAt: now,
+        blockedUntil: null,
+      };
+    } else {
+      tracker.attempts += 1;
+      tracker.lastAttemptAt = now;
+    }
+
+    // Se atingiu o limite máximo de tentativas por IP
+    if (tracker.attempts >= MAX_LOGIN_ATTEMPTS) {
+      tracker.blockedUntil = now + LOGIN_LOCKOUT_MS;
+      loginAttemptsByIp.set(ip, tracker);
+      const lockoutSeconds = Math.ceil(LOGIN_LOCKOUT_MS / 1000);
+      return res.status(429).json({
+        clientIp: ip,
+        isBlocked: true,
+        lockoutSeconds,
+        remainingAttempts: 0,
+        maxAttempts: MAX_LOGIN_ATTEMPTS,
+        attempts: tracker.attempts,
+        message: `Limite de 5 tentativas incorretas atingido. IP bloqueado por 15 minutos em conformidade com a LGPD.`,
+      });
+    }
+
+    loginAttemptsByIp.set(ip, tracker);
+    const remaining = MAX_LOGIN_ATTEMPTS - tracker.attempts;
+
+    return res.json({
+      clientIp: ip,
+      isBlocked: false,
+      lockoutSeconds: 0,
+      remainingAttempts: remaining,
+      maxAttempts: MAX_LOGIN_ATTEMPTS,
+      attempts: tracker.attempts,
+      message: `Credencial incorreta. Restam ${remaining} tentativa(s) antes do bloqueio temporário deste IP.`,
+    });
+  });
+
+  // Limpar tentativas (Reset explícito pós-login)
+  app.post("/api/auth/reset-rate-limit", (req, res) => {
+    const ip = getClientIp(req);
+    loginAttemptsByIp.delete(ip);
+    return res.json({ success: true, clientIp: ip });
+  });
+
+  // 2. Rate Limiting de Requisições de API (Anti-Scraping / DoS / Proteção Supabase)
+  interface ApiRateTracker {
+    count: number;
+    windowStart: number;
+  }
+  const apiRequestsByIp = new Map<string, ApiRateTracker>();
+  const API_LIMIT_PER_MINUTE = 100;
+  const API_WINDOW_MS = 60 * 1000;
+
+  const apiRateLimitMiddleware = (req: express.Request, res: express.Response, next: express.NextFunction) => {
+    if (req.path === "/api/health" || req.path.startsWith("/api/auth/")) {
+      return next();
+    }
+    const ip = getClientIp(req);
+    const now = Date.now();
+    let entry = apiRequestsByIp.get(ip);
+
+    if (!entry || now - entry.windowStart > API_WINDOW_MS) {
+      entry = { count: 1, windowStart: now };
+      apiRequestsByIp.set(ip, entry);
+    } else {
+      entry.count += 1;
+      if (entry.count > API_LIMIT_PER_MINUTE) {
+        const retryAfter = Math.ceil((entry.windowStart + API_WINDOW_MS - now) / 1000);
+        res.setHeader("Retry-After", retryAfter);
+        res.setHeader("X-RateLimit-Limit", API_LIMIT_PER_MINUTE);
+        res.setHeader("X-RateLimit-Remaining", 0);
+        return res.status(429).json({
+          success: false,
+          error: "Taxa máxima de requisições excedida. Para proteção contra ataques e conformidade com a LGPD, aguarde alguns instantes.",
+          retryAfter,
+        });
+      }
+    }
+
+    res.setHeader("X-RateLimit-Limit", API_LIMIT_PER_MINUTE);
+    res.setHeader("X-RateLimit-Remaining", Math.max(0, API_LIMIT_PER_MINUTE - entry.count));
+    next();
+  };
+
+  app.use("/api", apiRateLimitMiddleware);
+  app.use("/salas", apiRateLimitMiddleware);
+
   // Health check route
   app.get("/api/health", (_req, res) => {
     res.json({

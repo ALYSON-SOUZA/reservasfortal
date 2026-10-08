@@ -147,101 +147,28 @@ export const ReservationTable: React.FC<ReservationTableProps> = ({
 
   return (
     <div className="space-y-4">
-      {/* Banner Informativo de Destaque de Conflitos de Agenda */}
-      {conflictCount > 0 && (
-        <div className="p-3.5 bg-amber-50/95 border-2 border-amber-300 rounded-2xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 text-amber-950 font-dm-sans shadow-xs">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-amber-500 text-white flex items-center justify-center shrink-0 shadow-sm animate-pulse">
-              <AlertTriangle className="w-5 h-5 text-white" />
-            </div>
-            <div>
-              <div className="flex items-center gap-2 flex-wrap">
-                <h4 className="text-xs sm:text-sm font-bold text-amber-950 font-raleway">
-                  {conflictCount === 1
-                    ? '1 reserva com conflito de horário detectada'
-                    : `${conflictCount} reservas com conflito de horário detectadas`}
-                </h4>
-                <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-200 text-amber-900 border border-amber-300">
-                  Atenção de Agenda
-                </span>
-              </div>
-              <p className="text-[11px] sm:text-xs text-amber-800 mt-0.5">
-                Linhas com borda <strong className="text-amber-900">âmbar (⚠️ cede precedência)</strong> ou <strong className="text-emerald-800">verde (⭐ chamado mais antigo)</strong> indicam sobreposição de sala e horário.
-              </p>
-            </div>
-          </div>
-          <div className="flex items-center gap-2 self-end sm:self-auto shrink-0">
-            <button
-              type="button"
-              onClick={() => setShowOnlyConflicts((prev) => !prev)}
-              className={`px-3 py-1.5 rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer shadow-xs ${
-                showOnlyConflicts
-                  ? 'bg-amber-600 text-white hover:bg-amber-700'
-                  : 'bg-white border border-amber-400 text-amber-900 hover:bg-amber-100'
-              }`}
-            >
-              <AlertCircle className="w-3.5 h-3.5" />
-              <span>{showOnlyConflicts ? 'Mostrar Todas as Reservas' : `Filtrar Apenas Conflitos (${conflictCount})`}</span>
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* Caso o filtro de apenas conflitos esteja ativo e não haja nenhum conflito restante */}
-      {showOnlyConflicts && displayedReservations.length === 0 && (
-        <div className="bg-emerald-50 rounded-2xl border border-emerald-200 p-8 text-center">
-          <CheckCircle2 className="w-10 h-10 text-emerald-600 mx-auto mb-2" />
-          <h4 className="text-base font-bold text-emerald-950 font-raleway">Nenhum conflito de horário restante!</h4>
-          <p className="text-xs text-emerald-800 mt-1 mb-4">Todas as reservas exibidas estão sem conflitos de sala.</p>
-          <button
-            type="button"
-            onClick={() => setShowOnlyConflicts(false)}
-            className="px-4 py-2 bg-emerald-700 hover:bg-emerald-800 text-white rounded-xl text-xs font-bold font-dm-sans transition cursor-pointer"
-          >
-            Voltar a exibir todas
-          </button>
-        </div>
-      )}
-
       {/* Mobile Card List (md:hidden) */}
       <div className="md:hidden space-y-3">
         {displayedReservations.map((res) => {
           const isPast = getReservationStatus(res.dia, res.horaInicial, res.horaFinal) === 'encerrada';
           const conflictInfo = getConflictPriorityInfo(res, conflictPool);
           const hasConflict = conflictInfo.hasConflict;
-          const isPriority = conflictInfo.isPriority;
           const conflicts = conflictInfo.conflicts;
 
           return (
             <div
               key={res.id}
-              className={`bg-white rounded-2xl p-4 transition ${
-                hasConflict
-                  ? isPriority
-                    ? 'border-2 border-emerald-500 border-l-[8px] border-l-emerald-600 bg-emerald-50/25 ring-2 ring-emerald-400/40 shadow-sm'
-                    : 'border-2 border-amber-400 border-l-[8px] border-l-amber-500 bg-amber-50/30 ring-2 ring-amber-300/50 shadow-sm'
-                  : 'border border-slate-200/90 shadow-xs'
-              } ${isPast ? 'opacity-65 bg-slate-50' : ''}`}
+              className={`bg-white rounded-2xl p-4 transition border border-slate-200/90 shadow-xs ${isPast ? 'opacity-65 bg-slate-50' : ''}`}
             >
               <div className="flex items-start justify-between mb-2.5 pb-2 border-b border-slate-100 flex-wrap gap-2">
                 <div className="flex items-center gap-1.5 flex-wrap pt-1">
                   {getStatusBadge(res.dia, res.horaInicial, res.horaFinal)}
-                  {hasConflict && isPriority && (
+                  {hasConflict && (
                     <span
-                      className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold font-dm-sans bg-emerald-700 text-white border border-emerald-800 shadow-2xs"
-                      title={`Reserva Prioritária! Chamado mais antigo (GLPI #${res.glpi}) no horário concorrente.`}
+                      className="text-sm select-none cursor-help"
+                      title={`⚠️ Conflito de data/horário detectado nesta sala (${conflicts.length} sobreposição)`}
                     >
-                      <Star className="w-3 h-3 text-amber-300 fill-amber-300" />
-                      ⭐ Prioridade GLPI (Mais Antigo)
-                    </span>
-                  )}
-                  {hasConflict && !isPriority && (
-                    <span
-                      className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold font-dm-sans bg-amber-500 text-white border border-amber-600 shadow-2xs animate-pulse"
-                      title={`Conflito de Horário! O chamado mais antigo GLPI #${conflictInfo.priorityReservation?.glpi} (${conflictInfo.priorityReservation?.solicitante}) tem prioridade de uso.`}
-                    >
-                      <AlertTriangle className="w-3 h-3 text-white" />
-                      ⚠️ Conflito (Precedência #{conflictInfo.priorityReservation?.glpi})
+                      ⚠️
                     </span>
                   )}
                 </div>
@@ -314,64 +241,14 @@ export const ReservationTable: React.FC<ReservationTableProps> = ({
                   <button
                     type="button"
                     onClick={() => onViewDetails?.(res)}
-                    className={`font-mono font-bold text-xs px-2.5 py-1 rounded-lg border flex items-center gap-1.5 cursor-pointer transition shadow-2xs group active:scale-95 ${
-                      hasConflict && isPriority
-                        ? 'bg-emerald-700 hover:bg-emerald-800 text-white border-emerald-500 ring-2 ring-emerald-400/40'
-                        : 'bg-[#7D1416] text-white hover:bg-[#AD2F3B] border-[#AD2F3B]'
-                    }`}
+                    className="font-mono font-bold text-xs px-2.5 py-1 rounded-lg border flex items-center gap-1.5 cursor-pointer transition shadow-2xs group active:scale-95 bg-[#7D1416] text-white hover:bg-[#AD2F3B] border-[#AD2F3B]"
                     title="Clique para ver detalhamento do chamado GLPI"
                   >
                     <Ticket className="w-3.5 h-3.5 text-white/90 group-hover:scale-110 transition-transform" />
                     <span>#{res.glpi}</span>
-                    {hasConflict && isPriority && (
-                      <span className="bg-emerald-500 text-white text-[9px] font-black px-1 rounded">⭐ TOP 1</span>
-                    )}
                   </button>
                 </div>
               </div>
-
-              {/* Alerta de Conflito Mobile com Regra de Antiguidade */}
-              {hasConflict && (
-                <div
-                  className={`mb-2.5 p-2.5 rounded-xl border text-[11px] font-dm-sans ${
-                    isPriority
-                      ? 'bg-emerald-50/80 border-emerald-300 text-emerald-950'
-                      : 'bg-amber-50 border-amber-300 text-amber-950'
-                  }`}
-                >
-                  <div className="flex items-center gap-1.5 font-bold">
-                    {isPriority ? (
-                      <>
-                        <Star className="w-3.5 h-3.5 text-emerald-700 fill-emerald-500 shrink-0" />
-                        <span className="text-emerald-900">⭐ Chamado mais antigo — Prioridade Garantida:</span>
-                      </>
-                    ) : (
-                      <>
-                        <AlertTriangle className="w-3.5 h-3.5 text-amber-700 shrink-0" />
-                        <span className="text-amber-900">⚠️ Conflito de horário (Chamado Posterior):</span>
-                      </>
-                    )}
-                  </div>
-                  {isPriority ? (
-                    <div className="mt-1">
-                      <p className="text-emerald-900 font-medium">
-                        Por possuir o chamado GLPI mais antigo (#{res.glpi}), esta reunião tem precedência sobre {conflicts.length} agendamento(s) concorrente(s):
-                      </p>
-                      {conflicts.map((c) => (
-                        <p key={c.id} className="pl-3 mt-0.5 text-emerald-800 font-semibold">
-                          • {c.solicitante} ({c.horaInicial} às {c.horaFinal}) — GLPI #{c.glpi}
-                        </p>
-                      ))}
-                    </div>
-                  ) : (
-                    <div className="mt-1">
-                      <p className="text-amber-900 font-medium">
-                        A prioridade da sala pertence ao chamado mais antigo <strong>GLPI #{conflictInfo.priorityReservation?.glpi} ({conflictInfo.priorityReservation?.solicitante})</strong>.
-                      </p>
-                    </div>
-                  )}
-                </div>
-              )}
 
               <div className="space-y-2 text-xs font-dm-sans">
                 <div className="flex items-center justify-between">
@@ -385,21 +262,11 @@ export const ReservationTable: React.FC<ReservationTableProps> = ({
                   </span>
                 </div>
 
-                <div className={`flex items-center justify-between p-2 rounded-xl border ${
-                  hasConflict
-                    ? isPriority
-                      ? 'bg-emerald-100/60 border-emerald-300 text-emerald-950'
-                      : 'bg-amber-100/70 border-amber-300 text-amber-950'
-                    : 'bg-slate-50 border-transparent text-slate-600'
-                }`}>
+                <div className="flex items-center justify-between p-2 rounded-xl border bg-slate-50 border-slate-200 text-slate-700">
                   <span className="flex items-center gap-1.5 font-mono font-bold">
-                    {hasConflict && !isPriority && (
-                      <AlertTriangle className="w-3.5 h-3.5 text-amber-600 shrink-0 animate-bounce" />
-                    )}
-                    {hasConflict && isPriority && (
-                      <Star className="w-3.5 h-3.5 text-emerald-700 fill-emerald-500 shrink-0" />
-                    )}
-                    {!hasConflict && (
+                    {hasConflict ? (
+                      <span className="text-sm select-none cursor-help mr-0.5" title="⚠️ Conflito de data/horário detectado">⚠️</span>
+                    ) : (
                       <Clock className="w-3.5 h-3.5 text-[#AD2F3B]" />
                     )}
                     <span>{res.horaInicial} às {res.horaFinal}</span>
@@ -473,40 +340,15 @@ export const ReservationTable: React.FC<ReservationTableProps> = ({
                         : 'bg-[#EAEAEA]/35'
                     }`}
                   >
-                    {/* Status com Destaque de Borda e Ícone de Conflito */}
-                    <td className={`py-2.5 px-3 align-middle ${
-                      hasConflict
-                        ? isPriority
-                          ? 'border-l-[6px] border-l-emerald-600 bg-emerald-50/90 pl-2.5'
-                          : 'border-l-[6px] border-l-amber-500 bg-amber-50/90 pl-2.5'
-                        : ''
-                    }`}>
-                      <div className="flex flex-col gap-1 items-start">
+                    {/* Status */}
+                    <td className="py-2.5 px-3 align-middle">
+                      <div className="flex items-center gap-1.5">
                         {getStatusBadge(res.dia, res.horaInicial, res.horaFinal)}
-                        {hasConflict && isPriority && (
+                        {hasConflict && (
                           <span
-                            className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[10px] font-bold font-dm-sans bg-emerald-700 text-white border border-emerald-800 shadow-2xs whitespace-nowrap"
-                            title={`⭐ Reserva Prioritária! Entre as reuniões com horários concorrentes no mesmo dia e sala, possui o chamado GLPI mais antigo (#${res.glpi}).`}
-                          >
-                            <Star className="w-2.5 h-2.5 text-amber-300 fill-amber-300 shrink-0" />
-                            <span>⭐ Prioridade GLPI</span>
-                          </span>
-                        )}
-                        {hasConflict && !isPriority && (
-                          <span
-                            className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[10px] font-bold font-dm-sans bg-amber-500 text-white border border-amber-600 shadow-2xs animate-pulse whitespace-nowrap"
-                            title={`⚠️ Conflito de Horário! O chamado GLPI #${conflictInfo.priorityReservation?.glpi} (${conflictInfo.priorityReservation?.solicitante}) tem prioridade de uso por ser o mais antigo.`}
-                          >
-                            <AlertTriangle className="w-2.5 h-2.5 text-white shrink-0" />
-                            <span>⚠️ Conflito Detectado</span>
-                          </span>
-                        )}
-                        {hasConflict && !isPriority && conflictInfo.priorityReservation && (
-                          <span
-                            className="text-[9.5px] text-amber-900 font-semibold truncate max-w-[125px]"
-                            title={`Precedência: GLPI #${conflictInfo.priorityReservation.glpi} (${conflictInfo.priorityReservation.solicitante})`}
-                          >
-                            Precedência: #{conflictInfo.priorityReservation.glpi}
+                            className="text-sm select-none cursor-help"
+                            title={`⚠️ Conflito de data/horário detectado nesta sala (${conflicts.length} conflito(s))`}>
+                            ⚠️
                           </span>
                         )}
                       </div>
@@ -523,41 +365,13 @@ export const ReservationTable: React.FC<ReservationTableProps> = ({
                     {/* SALA */}
                     <td className="py-2.5 px-3 align-middle overflow-hidden">
                       <div className="flex items-center gap-2">
-                        <div className={`w-6 h-6 rounded-lg flex items-center justify-center shrink-0 ${
-                          hasConflict && isPriority
-                            ? 'bg-emerald-200 text-emerald-800'
-                            : hasConflict && !isPriority
-                            ? 'bg-amber-200 text-amber-800'
-                            : 'bg-slate-100 text-[#7D1416]'
-                        }`}>
-                          {hasConflict && !isPriority ? (
-                            <AlertTriangle className="w-3.5 h-3.5 text-amber-700" />
-                          ) : hasConflict && isPriority ? (
-                            <Star className="w-3.5 h-3.5 text-emerald-700 fill-emerald-500" />
-                          ) : (
-                            <Building className="w-3.5 h-3.5" />
-                          )}
+                        <div className="w-6 h-6 rounded-lg flex items-center justify-center shrink-0 bg-slate-100 text-[#7D1416]">
+                          <Building className="w-3.5 h-3.5" />
                         </div>
                         <div className="min-w-0 flex-1">
-                          <div className={`font-bold font-raleway truncate text-xs sm:text-sm ${
-                            hasConflict && isPriority
-                              ? 'text-emerald-950'
-                              : hasConflict && !isPriority
-                              ? 'text-amber-950'
-                              : 'text-[#7D1416]'
-                          }`} title={res.sala}>
+                          <div className="font-bold font-raleway truncate text-xs sm:text-sm text-[#7D1416]" title={res.sala}>
                             {res.sala}
                           </div>
-                          {hasConflict && isPriority && (
-                            <span className="text-[10px] text-emerald-800 font-bold block truncate" title={`Prioridade sobre ${conflicts.map(c => `${c.solicitante} (#${c.glpi})`).join(', ')}`}>
-                              ⭐ Prioritário ({conflicts.length} concorrente{conflicts.length > 1 ? 's' : ''})
-                            </span>
-                          )}
-                          {hasConflict && !isPriority && (
-                            <span className="text-[10px] text-amber-800 font-bold block truncate" title={`Precedência do chamado mais antigo GLPI #${conflictInfo.priorityReservation?.glpi} (${conflictInfo.priorityReservation?.solicitante})`}>
-                              ⚠️ Precedência GLPI #{conflictInfo.priorityReservation?.glpi}
-                            </span>
-                          )}
                           {res.observacoes && (
                             <span
                               className="text-[11px] text-[#252A34]/70 truncate flex items-center gap-1 cursor-help"
@@ -571,44 +385,24 @@ export const ReservationTable: React.FC<ReservationTableProps> = ({
                       </div>
                     </td>
 
-                    {/* HORA INICIAL / FINAL com Ícone e Borda em caso de Conflito */}
+                    {/* HORA INICIAL / FINAL com apenas emoji em caso de Conflito de Data/Hora */}
                     <td className="py-2.5 px-2.5 align-middle whitespace-nowrap">
                       <div className="flex items-center gap-1.5">
-                        {hasConflict && !isPriority && (
+                        {hasConflict && (
                           <span
-                            title="⚠️ Conflito de Horário! Reunião concorrente nesta sala."
-                            className="inline-flex p-1 rounded-md bg-amber-100 border border-amber-400 text-amber-800 shadow-2xs animate-bounce shrink-0"
+                            title="⚠️ Conflito de data/horário detectado nesta sala."
+                            className="text-sm select-none cursor-help shrink-0"
                           >
-                            <AlertTriangle className="w-3.5 h-3.5 text-amber-700" />
-                          </span>
-                        )}
-                        {hasConflict && isPriority && (
-                          <span
-                            title="⭐ Conflito de Horário: Reserva com prioridade pelo chamado mais antigo"
-                            className="inline-flex p-1 rounded-md bg-emerald-100 border border-emerald-400 text-emerald-800 shadow-2xs shrink-0"
-                          >
-                            <Star className="w-3.5 h-3.5 text-emerald-700 fill-emerald-500" />
+                            ⚠️
                           </span>
                         )}
                         <div className="flex items-center gap-1 text-[#252A34] font-mono text-xs">
-                          <Clock className={`w-3.5 h-3.5 shrink-0 ${hasConflict ? (isPriority ? 'text-emerald-700' : 'text-amber-700') : 'text-[#AD2F3B]'}`} />
-                          <span className={`font-bold px-1.5 py-0.5 rounded text-[11px] ${
-                            hasConflict
-                              ? isPriority
-                                ? 'bg-emerald-100 text-emerald-950 font-black border border-emerald-300 ring-1 ring-emerald-300'
-                                : 'bg-amber-100 text-amber-950 font-black border border-amber-300 ring-1 ring-amber-300'
-                              : 'bg-slate-100 text-[#252A34]'
-                          }`}>
+                          <Clock className="w-3.5 h-3.5 shrink-0 text-[#AD2F3B]" />
+                          <span className="font-bold px-1.5 py-0.5 rounded text-[11px] bg-slate-100 text-[#252A34]">
                             {res.horaInicial}
                           </span>
                           <span className="text-slate-400 text-[10px]">às</span>
-                          <span className={`font-bold px-1.5 py-0.5 rounded text-[11px] ${
-                            hasConflict
-                              ? isPriority
-                                ? 'bg-emerald-100 text-emerald-950 font-black border border-emerald-300 ring-1 ring-emerald-300'
-                                : 'bg-amber-100 text-amber-950 font-black border border-amber-300 ring-1 ring-amber-300'
-                              : 'bg-slate-100 text-[#252A34]'
-                          }`}>
+                          <span className="font-bold px-1.5 py-0.5 rounded text-[11px] bg-slate-100 text-[#252A34]">
                             {res.horaFinal}
                           </span>
                         </div>

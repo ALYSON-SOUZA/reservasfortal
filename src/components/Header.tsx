@@ -12,8 +12,12 @@ import {
   Bell,
   Crown,
   MapPin,
+  ShieldCheck,
+  Eye,
+  EyeOff,
 } from 'lucide-react';
 import { FilterOptions, AppUser, Filial } from '../types';
+import { maskCPF } from '../utils/lgpdUtils';
 
 interface HeaderProps {
   onOpenNewModal: () => void;
@@ -29,6 +33,8 @@ interface HeaderProps {
   onOpenAnalyticsModal: () => void;
   onOpenSectorManagerModal: () => void;
   onOpenRoomManagerModal: () => void;
+  isCpfMasked?: boolean;
+  onToggleCpfMask?: () => void;
   activeView?: 'list' | 'timeline';
   onToggleView?: (view: 'list' | 'timeline') => void;
   isSupabaseLive?: boolean;
@@ -55,6 +61,8 @@ export const Header: React.FC<HeaderProps> = ({
   onOpenSectorManagerModal,
   onOpenRoomManagerModal,
   onOpenBranchManagerModal,
+  isCpfMasked = true,
+  onToggleCpfMask,
   filiaisList = [],
   onOpenSupabaseModal,
   isSupabaseLive,
@@ -140,9 +148,21 @@ export const Header: React.FC<HeaderProps> = ({
                           </span>
                         )}
                       </div>
-                      <span className="text-[9px] text-[#EAEAEA]/80 font-mono leading-none mt-0.5">
-                        CPF {currentUser.cpf}
-                      </span>
+                      <div className="flex items-center gap-1 mt-0.5">
+                        <span className="text-[9px] text-[#EAEAEA]/80 font-mono leading-none">
+                          CPF {isCpfMasked ? maskCPF(currentUser.cpf) : currentUser.cpf}
+                        </span>
+                        {onToggleCpfMask && (
+                          <button
+                            type="button"
+                            onClick={onToggleCpfMask}
+                            title={isCpfMasked ? 'LGPD: CPF mascarado para privacidade. Clique para exibir.' : 'Clique para ocultar CPF'}
+                            className="text-[#EAEAEA]/70 hover:text-white p-0.5 transition cursor-pointer"
+                          >
+                            {isCpfMasked ? <EyeOff className="w-2.5 h-2.5" /> : <Eye className="w-2.5 h-2.5" />}
+                          </button>
+                        )}
+                      </div>
                     </div>
                     {onLogout && (
                       <button

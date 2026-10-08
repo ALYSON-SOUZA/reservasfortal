@@ -11,38 +11,24 @@ import {
 
 const USER_SESSION_KEY = 'bellinati_reserva_user_session_v1';
 
-// Helper to format CPF as 000.000.000-00
+// Helper to format CPF progressively as the user types
 export function formatCPF(value: string): string {
-  const digits = cleanCPF(value).padStart(11, '0').slice(0, 11);
+  const digits = cleanCPF(value).slice(0, 11);
+  if (!digits) return '';
+  if (digits.length <= 3) return digits;
+  if (digits.length <= 6) return `${digits.slice(0, 3)}.${digits.slice(3)}`;
+  if (digits.length <= 9) return `${digits.slice(0, 3)}.${digits.slice(3, 6)}.${digits.slice(6)}`;
   return `${digits.slice(0, 3)}.${digits.slice(3, 6)}.${digits.slice(6, 9)}-${digits.slice(9, 11)}`;
 }
 
-// Basic CPF validation with leading-zero normalization
+// Basic CPF validation with open access support (any 11 numeric digits allowed for regular users)
 export function isValidCPF(cpfRaw: string): boolean {
   if (isMasterCpf(cpfRaw)) return true;
   const cpf = normalizeCPF(cpfRaw);
   if (cpf.length !== 11) return false;
   
-  // Check known invalid sequences
+  // Seqüência de todos os dígitos iguais (ex: 000.000.000-00, 111.111.111-11)
   if (/^(\d)\1{10}$/.test(cpf)) return false;
-
-  let sum = 0;
-  let remainder: number;
-
-  for (let i = 1; i <= 9; i++) {
-    sum += parseInt(cpf.substring(i - 1, i), 10) * (11 - i);
-  }
-  remainder = (sum * 10) % 11;
-  if (remainder === 10 || remainder === 11) remainder = 0;
-  if (remainder !== parseInt(cpf.substring(9, 10), 10)) return false;
-
-  sum = 0;
-  for (let i = 1; i <= 10; i++) {
-    sum += parseInt(cpf.substring(i - 1, i), 10) * (12 - i);
-  }
-  remainder = (sum * 10) % 11;
-  if (remainder === 10 || remainder === 11) remainder = 0;
-  if (remainder !== parseInt(cpf.substring(10, 11), 10)) return false;
 
   return true;
 }

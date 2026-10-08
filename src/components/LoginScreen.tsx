@@ -11,6 +11,7 @@ import {
   Eye,
   EyeOff,
   X,
+  Crown,
 } from 'lucide-react';
 import { authService, formatCPF, isValidCPF, extractFirstName } from '../services/authService';
 import {
@@ -18,6 +19,7 @@ import {
   isMasterCpf,
   cleanCPF,
 } from '../utils/rbac';
+import { loginRateLimiter, RateLimitStatus } from '../utils/rateLimiter';
 import { AppUser } from '../types';
 
 interface LoginScreenProps {
@@ -32,6 +34,17 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess }) => {
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
 
+  // Rate Limiting por IP para Proteção contra Força Bruta (LGPD Art. 46)
+  const [rateStatus, setRateStatus] = useState<RateLimitStatus>({
+    clientIp: 'Detectando IP...',
+    isBlocked: false,
+    lockoutSeconds: 0,
+    remainingAttempts: 5,
+    maxAttempts: 5,
+    attempts: 0,
+  });
+  const [countdown, setCountdown] = useState<number>(0);
+
   // Estado para Modal de Recuperação de Senha do Usuário Master
   const [isRecoveryOpen, setIsRecoveryOpen] = useState(false);
   const [recoveryCpf, setRecoveryCpf] = useState('');
@@ -43,6 +56,37 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess }) => {
   } | null>(null);
   const [newPasswordInput, setNewPasswordInput] = useState('');
   const [resetFeedback, setResetFeedback] = useState<string | null>(null);
+
+  // Inicializa verificação de Rate Limit por IP ao carregar tela
+  useEffect(() => {
+    const fetchRateStatus = async () => {
+      const status = await loginRateLimiter.getStatus();
+      setRateStatus(status);
+      if (status.isBlocked && status.lockoutSeconds > 0) {
+        setCountdown(status.lockoutSeconds);
+      }
+    };
+    fetchRateStatus();
+  }, []);
+
+  // Timer decrescente de bloqueio temporário
+  useEffect(() => {
+    if (countdown <= 0) return;
+    const interval = setInterval(() => {
+      setCountdown((prev) => {
+        if (prev <= 1) {
+          clearInterval(interval);
+          loginRateLimiter.getStatus().then((st) => {
+            setRateStatus(st);
+            if (!st.isBlocked) setError(null);
+          });
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [countdown]);
 
   // Identificação dinâmica por CPF sem expor perfil antecipadamente
   const digitsOnly = cleanCPF(cpf);
@@ -57,7 +101,8 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess }) => {
   }, [detectedMaster]);
 
   const handleCpfChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const masked = formatCPF(e.target.value);
+    const rawVal = e.target.value;
+    const masked = formatCPF(rawVal);
     setCpf(masked);
     if (error) setError(null);
   };
@@ -72,18 +117,20 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess }) => {
     if (error) setError(null);
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
 
     const trimmedNome = nome.trim();
-    if (!digitsOnly || digitsOnly.length < 11) {
+    const normalizedDigits = digitsOnly.length === 10 ? digitsOnly.padStart(11, '0') : digitsOnly;
+
+    if (!normalizedDigits || normalizedDigits.length < 11) {
       setError('Por favor, informe um CPF completo com 11 dígitos.');
       return;
     }
 
-    if (!isValidCPF(digitsOnly)) {
-      setError('O CPF informado possui formato ou dígitos verificadores inválidos.');
+    if (!isValidCPF(normalizedDigits)) {
+      setError('O CPF informado possui formato ou dígitos inválidos.');
       return;
     }
 
@@ -95,28 +142,58 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess }) => {
     // Se for o Usuário Master identificado, exige a senha administrativa correspondente
     if (isMasterUser) {
       if (!password) {
-        setError('Por favor, digite a sua senha de acesso.');
+        setError('Por favor, digite a sua senha de acesso de Administrador Master.');
         return;
       }
     }
 
+    // Validação preventiva de bloqueio por IP (LGPD Art. 46)
+    if (rateStatus.isBlocked || countdown > 0) {
+      setError(
+        `🔒 Acesso bloqueado por segurança (LGPD): Limite de 5 tentativas por IP excedido para prevenir ataques de força bruta. Aguarde ${loginRateLimiter.formatSeconds(countdown || rateStatus.lockoutSeconds)} para tentar novamente a partir do IP ${rateStatus.clientIp}.`
+      );
+      return;
+    }
+
     setIsLoading(true);
-    setTimeout(() => {
-      try {
-        const user = authService.login(digitsOnly, trimmedNome, password);
-        setIsLoading(false);
-        onLoginSuccess(user);
-      } catch (err: any) {
-        setIsLoading(false);
-        setError(err.message || 'Falha ao autenticar.');
+    try {
+      const user = authService.login(normalizedDigits, trimmedNome, password);
+      // Sucesso: reseta histórico de tentativas no backend e storage local
+      await loginRateLimiter.recordAttempt(true, normalizedDigits);
+      setIsLoading(false);
+      onLoginSuccess(user);
+    } catch (err: any) {
+      // Falha: registra tentativa incorreta vinculada ao IP
+      const updated = await loginRateLimiter.recordAttempt(false, normalizedDigits);
+      setRateStatus(updated);
+      setIsLoading(false);
+
+      if (updated.isBlocked) {
+        setCountdown(updated.lockoutSeconds);
+        setError(
+          `🔒 Bloqueio de Segurança LGPD Ativado: Limite de 5 tentativas incorretas atingido para o IP ${updated.clientIp}. Acesso temporariamente bloqueado por ${loginRateLimiter.formatSeconds(updated.lockoutSeconds)}.`
+        );
+      } else {
+        setError(
+          `${err.message || 'Falha ao autenticar.'} (Tentativa ${updated.attempts} de 5 permitidas para o IP ${updated.clientIp} antes do bloqueio)`
+        );
       }
-    }, 200);
+    }
   };
 
-  // Recuperação de senha exclusiva para o Usuário Master
-  const handleExecuteRecovery = (e: React.FormEvent) => {
+  // Recuperação de senha exclusiva para o Usuário Master com proteção por IP
+  const handleExecuteRecovery = async (e: React.FormEvent) => {
     e.preventDefault();
     setResetFeedback(null);
+
+    if (rateStatus.isBlocked || countdown > 0) {
+      setRecoveryResult({
+        success: false,
+        message: `Ação bloqueada temporariamente para o IP ${rateStatus.clientIp}. Aguarde ${loginRateLimiter.formatSeconds(countdown)}.`,
+      });
+      return;
+    }
+
     const digits = cleanCPF(recoveryCpf);
 
     if (!digits) {
@@ -128,6 +205,14 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess }) => {
     }
 
     const res = authService.recoverMasterPassword(digits);
+    if (!res.success) {
+      // Conta como tentativa falha para prevenir enumeração de credenciais
+      const updated = await loginRateLimiter.recordAttempt(false, digits);
+      setRateStatus(updated);
+      if (updated.isBlocked) {
+        setCountdown(updated.lockoutSeconds);
+      }
+    }
     setRecoveryResult(res);
   };
 
@@ -176,8 +261,28 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess }) => {
 
           {/* Formulário Unificado com Identificação Dinâmica */}
           <form onSubmit={handleSubmit} className="space-y-4">
+            {/* Bloqueio Ativo por Rate Limiting / Força Bruta por IP (LGPD Art. 46) */}
+            {(rateStatus.isBlocked || countdown > 0) && (
+              <div className="p-4 rounded-2xl bg-rose-50 border-2 border-rose-300 text-rose-950 text-xs font-dm-sans mb-3 shadow-xs animate-in fade-in">
+                <div className="flex items-center gap-2 font-bold font-raleway text-rose-900 text-sm mb-1">
+                  <Lock className="w-4 h-4 text-rose-700 shrink-0" />
+                  <span>Bloqueio de Segurança por IP (LGPD Art. 46)</span>
+                </div>
+                <p className="text-xs text-rose-800 leading-relaxed mb-2.5">
+                  Limite de <strong>5 tentativas de autenticação</strong> atingido para o IP <strong>{rateStatus.clientIp}</strong>.
+                  Para prevenir ataques de força bruta aos dados dos colaboradores, novas tentativas estão temporariamente bloqueadas.
+                </p>
+                <div className="flex items-center justify-between p-2 rounded-xl bg-white/80 border border-rose-200">
+                  <span className="text-[11px] font-semibold text-rose-800">⏳ Tempo restante para desbloqueio:</span>
+                  <span className="font-mono font-black text-sm text-rose-900 px-2 py-0.5 rounded-lg bg-rose-100 border border-rose-300">
+                    {loginRateLimiter.formatSeconds(countdown || rateStatus.lockoutSeconds)}
+                  </span>
+                </div>
+              </div>
+            )}
+
             {/* Mensagem de Erro */}
-            {error && (
+            {error && !rateStatus.isBlocked && countdown <= 0 && (
               <div className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-800 text-xs font-semibold flex items-start gap-2">
                 <AlertCircle className="w-4 h-4 text-[#AD2F3B] shrink-0 mt-0.5" />
                 <span>{error}</span>
@@ -197,12 +302,13 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess }) => {
                   id="login-cpf"
                   type="text"
                   required
+                  disabled={rateStatus.isBlocked || countdown > 0}
                   value={cpf}
                   onChange={handleCpfChange}
                   placeholder="000.000.000-00"
                   maxLength={14}
                   autoFocus
-                  className="w-full pl-10 pr-4 py-3 rounded-xl border-2 border-slate-200 focus:border-[#AD2F3B] focus:ring-4 focus:ring-[#AD2F3B]/15 outline-hidden transition text-sm font-mono font-bold text-slate-800 placeholder-slate-400 bg-slate-50/50 focus:bg-white"
+                  className="w-full pl-10 pr-4 py-3 rounded-xl border-2 border-slate-200 focus:border-[#AD2F3B] focus:ring-4 focus:ring-[#AD2F3B]/15 outline-hidden transition text-sm font-mono font-bold text-slate-800 placeholder-slate-400 bg-slate-50/50 focus:bg-white disabled:opacity-60 disabled:cursor-not-allowed"
                 />
               </div>
             </div>
@@ -220,10 +326,11 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess }) => {
                   id="login-nome"
                   type="text"
                   required
+                  disabled={rateStatus.isBlocked || countdown > 0}
                   value={nome}
                   onChange={handleNomeChange}
                   placeholder="Informe seu nome completo"
-                  className="w-full pl-10 pr-4 py-3 rounded-xl border-2 border-slate-200 focus:border-[#AD2F3B] focus:ring-4 focus:ring-[#AD2F3B]/15 outline-hidden transition text-sm font-semibold text-slate-800 placeholder-slate-400 bg-slate-50/50 focus:bg-white font-dm-sans"
+                  className="w-full pl-10 pr-4 py-3 rounded-xl border-2 border-slate-200 focus:border-[#AD2F3B] focus:ring-4 focus:ring-[#AD2F3B]/15 outline-hidden transition text-sm font-semibold text-slate-800 placeholder-slate-400 bg-slate-50/50 focus:bg-white font-dm-sans disabled:opacity-60 disabled:cursor-not-allowed"
                 />
               </div>
               {nome.trim().length >= 3 && (
@@ -234,23 +341,47 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess }) => {
               )}
             </div>
 
+            {/* Aviso Dinâmico: Perfil Master Identificado */}
+            {isMasterUser && detectedMaster && (
+              <div className="p-3 rounded-xl bg-amber-50 border border-amber-300 text-amber-900 text-xs font-dm-sans flex items-center justify-between animate-in fade-in">
+                <div className="flex items-center gap-2">
+                  <Crown className="w-4 h-4 text-amber-600 shrink-0" />
+                  <span>
+                    Perfil <strong>Administrador Master</strong>: {detectedMaster.nome}
+                  </span>
+                </div>
+                <span className="text-[10px] font-black uppercase tracking-wider px-2 py-0.5 rounded-full bg-amber-200 text-amber-900 border border-amber-300">
+                  Master
+                </span>
+              </div>
+            )}
+
+            {/* Aviso Dinâmico: Acesso Livre (Sem necessidade de cadastro prévio) */}
+            {!isMasterUser && digitsOnly.length >= 11 && (
+              <div className="p-2.5 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs font-dm-sans flex items-center gap-2 animate-in fade-in">
+                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                <span>Acesso Livre liberado: basta informar seu nome para acessar (sem senha prévia).</span>
+              </div>
+            )}
+
             {/* Input Senha: Exibido exclusivamente e dinamicamente quando o CPF for o Usuário Master */}
             {isMasterUser && (
               <div className="animate-in fade-in slide-in-from-top-2 duration-150 pt-1">
                 <div className="flex items-center justify-between mb-1.5">
                   <label htmlFor="login-senha" className="block text-xs font-bold text-[#7D1416] font-raleway flex items-center gap-1.5">
                     <KeyRound className="w-3.5 h-3.5 text-[#AD2F3B]" />
-                    <span>SENHA DE ACESSO *</span>
+                    <span>SENHA MASTER *</span>
                   </label>
                   <button
                     type="button"
+                    disabled={rateStatus.isBlocked || countdown > 0}
                     onClick={() => {
                       setRecoveryCpf(cpf);
                       setRecoveryResult(null);
                       setResetFeedback(null);
                       setIsRecoveryOpen(true);
                     }}
-                    className="text-[11px] font-bold text-[#AD2F3B] hover:text-[#7D1416] underline underline-offset-2 cursor-pointer"
+                    className="text-[11px] font-bold text-[#AD2F3B] hover:text-[#7D1416] underline underline-offset-2 cursor-pointer disabled:opacity-50"
                   >
                     Recuperar senha
                   </button>
@@ -263,11 +394,12 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess }) => {
                     id="login-senha"
                     type={showPassword ? 'text' : 'password'}
                     required
+                    disabled={rateStatus.isBlocked || countdown > 0}
                     value={password}
                     onChange={handlePasswordChange}
-                    placeholder="Digite sua senha"
+                    placeholder="Digite a senha de administrador master"
                     autoFocus
-                    className="w-full pl-10 pr-10 py-3 rounded-xl border-2 border-[#AD2F3B]/40 focus:border-[#7D1416] focus:ring-4 focus:ring-[#7D1416]/15 outline-hidden transition text-sm font-mono font-bold text-slate-800 placeholder-slate-400 bg-slate-50/50 focus:bg-white"
+                    className="w-full pl-10 pr-10 py-3 rounded-xl border-2 border-[#AD2F3B]/40 focus:border-[#7D1416] focus:ring-4 focus:ring-[#7D1416]/15 outline-hidden transition text-sm font-mono font-bold text-slate-800 placeholder-slate-400 bg-slate-50/50 focus:bg-white disabled:opacity-60 disabled:cursor-not-allowed"
                   />
                   <button
                     type="button"
@@ -281,21 +413,40 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess }) => {
               </div>
             )}
 
+            {/* Indicador de Proteção por IP & Limite de Tentativas (LGPD) */}
+            <div className="px-3 py-2 rounded-xl bg-slate-50 border border-slate-200 flex items-center justify-between text-[11px] font-dm-sans">
+              <div className="flex items-center gap-1.5">
+                <ShieldCheck className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                <span className="text-slate-600">Proteção por IP (LGPD):</span>
+                <strong className={rateStatus.remainingAttempts <= 2 ? 'text-amber-700 font-bold' : 'text-slate-800'}>
+                  {rateStatus.remainingAttempts} de {rateStatus.maxAttempts} tentativa{rateStatus.remainingAttempts === 1 ? '' : 's'}
+                </strong>
+              </div>
+              <span className="font-mono text-[10px] text-slate-400 truncate max-w-[130px]" title={`Endereço IP: ${rateStatus.clientIp}`}>
+                IP: {rateStatus.clientIp}
+              </span>
+            </div>
+
             {/* Botão de Envio (CTA com Rosa #FF2E63) */}
             <button
               id="btn-login-entrar"
               type="submit"
-              disabled={isLoading}
-              className="w-full mt-2 py-3.5 px-4 rounded-xl bg-[#FF2E63] hover:bg-[#AD2F3B] text-white font-bold font-raleway tracking-wider text-sm flex items-center justify-center gap-2 shadow-lg shadow-[#FF2E63]/30 transition active:scale-[0.98] cursor-pointer disabled:opacity-70 disabled:cursor-not-allowed"
+              disabled={isLoading || rateStatus.isBlocked || countdown > 0}
+              className="w-full mt-2 py-3.5 px-4 rounded-xl bg-[#FF2E63] hover:bg-[#AD2F3B] text-white font-bold font-raleway tracking-wider text-sm flex items-center justify-center gap-2 shadow-lg shadow-[#FF2E63]/30 transition active:scale-[0.98] cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed"
             >
               {isLoading ? (
                 <>
                   <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
                   <span>Validando...</span>
                 </>
+              ) : rateStatus.isBlocked || countdown > 0 ? (
+                <>
+                  <Lock className="w-4 h-4" />
+                  <span>Bloqueado ({loginRateLimiter.formatSeconds(countdown || rateStatus.lockoutSeconds)})</span>
+                </>
               ) : (
                 <>
-                  <span>Entrar no Sistema</span>
+                  <span>{isMasterUser ? 'Entrar como Administrador Master' : 'Entrar no Sistema'}</span>
                   <ArrowRight className="w-4 h-4 stroke-[2.5]" />
                 </>
               )}

@@ -27,6 +27,11 @@ export const DEFAULT_SALAS = [
   'Executiva 19',
   'Reunião 21',
   'Reunião 22',
+  // Curitiba/CEBP
+  'Auditório CEBP',
+  'Reunião CEBP 1',
+  'Reunião CEBP 2',
+  'Treinamento CEBP',
 ];
 
 export const DEFAULT_SETORES = [

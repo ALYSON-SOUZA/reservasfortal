@@ -188,6 +188,33 @@ export default function App() {
   const [detailReservation, setDetailReservation] = useState<Reservation | null>(null);
   const [isNotificationCenterOpen, setIsNotificationCenterOpen] = useState(false);
   const [notificationStatus, setNotificationStatus] = useState<NotificationPermission | 'unsupported'>('default');
+  const [isCpfMasked, setIsCpfMasked] = useState<boolean>(true);
+
+  // Monitor de Inatividade (Conformidade LGPD Art. 46 - Auto-lock após 30 min)
+  useEffect(() => {
+    let timeoutId: any;
+    const resetTimer = () => {
+      clearTimeout(timeoutId);
+      timeoutId = setTimeout(() => {
+        if (currentUser) {
+          addToast(
+            'warning',
+            'Sessão inativa por mais de 30 minutos. Proteção de dados da Bellinati Perez conforme a LGPD.',
+            'Segurança LGPD'
+          );
+        }
+      }, 30 * 60 * 1000);
+    };
+
+    const events = ['mousedown', 'keydown', 'scroll', 'touchstart'];
+    events.forEach((ev) => window.addEventListener(ev, resetTimer));
+    resetTimer();
+
+    return () => {
+      clearTimeout(timeoutId);
+      events.forEach((ev) => window.removeEventListener(ev, resetTimer));
+    };
+  }, [currentUser, addToast]);
 
   // Monitoramento periódico de notificações agendadas no navegador (15 minutos antes)
   useEffect(() => {
@@ -637,6 +664,8 @@ export default function App() {
         onOpenSectorManagerModal={() => setIsSectorManagerModalOpen(true)}
         onOpenRoomManagerModal={() => setIsRoomManagerModalOpen(true)}
         onOpenBranchManagerModal={() => setIsBranchManagerOpen(true)}
+        isCpfMasked={isCpfMasked}
+        onToggleCpfMask={() => setIsCpfMasked((prev) => !prev)}
         filiaisList={filiais}
         onOpenSupabaseModal={() => setIsSupabaseModalOpen(true)}
         isSupabaseLive={isSupabaseLive}
@@ -796,7 +825,10 @@ export default function App() {
       <ReportModal
         isOpen={isReportModalOpen}
         onClose={() => setIsReportModalOpen(false)}
-        reservations={filteredReservations}
+        allReservations={reservations}
+        rooms={rooms}
+        filiais={filiais}
+        initialFilial={filters.filial || ''}
         filters={filters}
       />
 
@@ -826,6 +858,8 @@ export default function App() {
         onClose={() => setIsAnalyticsModalOpen(false)}
         reservations={reservations}
         rooms={rooms}
+        filiais={filiais}
+        initialFilial={filters.filial || ''}
       />
 
       {/* Modal de Gerenciamento de Setores */}

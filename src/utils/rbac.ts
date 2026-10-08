@@ -100,6 +100,7 @@ export function normalizeCPF(cpfRaw: string): string {
  */
 export function findMasterUser(cpfRaw: string): MasterUserDefinition | undefined {
   const digits = cleanCPF(cpfRaw);
+  if (!digits || digits.length < 10) return undefined;
   const padded = normalizeCPF(cpfRaw);
   const unpadded = digits.replace(/^0+/, '');
 

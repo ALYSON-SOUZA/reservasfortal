@@ -2,7 +2,7 @@ import { supabase, isSupabaseConfigured, toAppSala, toDbSala } from '../lib/supa
 import { Sala, Reservation, DbSala } from '../types';
 import { DEFAULT_SALAS } from '../utils/mockData';
 
-const LOCAL_STORAGE_KEY = 'salas_facilities_bellinati_v5';
+const LOCAL_STORAGE_KEY = 'salas_facilities_bellinati_v6';
 
 // Purga chaves legadas de versões anteriores do navegador
 try {
@@ -11,6 +11,7 @@ try {
     window.localStorage.removeItem('salas_facilities_bellinati_v2');
     window.localStorage.removeItem('salas_facilities_bellinati_v3');
     window.localStorage.removeItem('salas_facilities_bellinati_v4');
+    window.localStorage.removeItem('salas_facilities_bellinati_v5');
   }
 } catch {
   // ignore
@@ -58,6 +59,12 @@ export function getDefaultSalas(): Sala[] {
     { nome: 'Executiva 19', filial: 'Curitiba/Marechal', capacidade: 15, recursos: ['Videoconferência', 'TV', 'Quadro Branco', 'Climatizada'] },
     { nome: 'Reunião 21', filial: 'Curitiba/Marechal', capacidade: 10, recursos: ['TV', 'Videoconferência'] },
     { nome: 'Reunião 22', filial: 'Curitiba/Marechal', capacidade: 10, recursos: ['TV', 'Videoconferência'] },
+
+    // 6. Curitiba/CEBP (Centro Empresarial Bellinati Perez)
+    { nome: 'Auditório CEBP', filial: 'Curitiba/CEBP', capacidade: 35, recursos: ['Projetor', 'Videoconferência', 'TV', 'Sistema de Áudio', 'Climatizada'] },
+    { nome: 'Reunião CEBP 1', filial: 'Curitiba/CEBP', capacidade: 10, recursos: ['TV', 'Videoconferência', 'Quadro Branco'] },
+    { nome: 'Reunião CEBP 2', filial: 'Curitiba/CEBP', capacidade: 12, recursos: ['TV', 'Videoconferência', 'Quadro Branco'] },
+    { nome: 'Treinamento CEBP', filial: 'Curitiba/CEBP', capacidade: 25, recursos: ['Projetor', 'Quadro Branco', 'Climatizada'] },
   ];
 
   return roomsConfig.map((item, index) => ({
