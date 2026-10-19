@@ -21,7 +21,10 @@ import {
   Star,
   MapPin,
   Building2,
+  Repeat,
+  CalendarRange,
 } from 'lucide-react';
+import { AvailabilityRadar } from './AvailabilityRadar';
 import { salaService } from '../services/salaService';
 import { setorService } from '../services/setorService';
 import { filialService } from '../services/filialService';
@@ -41,7 +44,11 @@ export const FILIAIS_OFICIAIS = [
 interface ReservationModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onSave: (reservationData: Omit<Reservation, 'id' | 'criadoEm'> & { id?: string }) => void;
+  onSave: (
+    reservationData:
+      | (Omit<Reservation, 'id' | 'criadoEm'> & { id?: string })
+      | Array<Omit<Reservation, 'id' | 'criadoEm'> & { id?: string }>
+  ) => void;
   editingReservation?: Reservation | null;
   existingReservations: Reservation[];
   onOpenAiModal?: () => void;
@@ -52,6 +59,32 @@ interface ReservationModalProps {
     horaInicial?: string;
     horaFinal?: string;
   };
+}
+
+export function calculateRecurringDates(
+  baseDateStr: string,
+  frequency: 'semanal' | 'quinzenal' | 'mensal',
+  count: number
+): string[] {
+  if (!baseDateStr) return [];
+  const dates: string[] = [baseDateStr];
+  const [y, m, d] = baseDateStr.split('-').map(Number);
+
+  for (let i = 1; i < count; i++) {
+    const current = new Date(y, m - 1, d, 12, 0, 0);
+    if (frequency === 'semanal') {
+      current.setDate(current.getDate() + 7 * i);
+    } else if (frequency === 'quinzenal') {
+      current.setDate(current.getDate() + 14 * i);
+    } else if (frequency === 'mensal') {
+      current.setMonth(current.getMonth() + i);
+    }
+    const year = current.getFullYear();
+    const month = String(current.getMonth() + 1).padStart(2, '0');
+    const day = String(current.getDate()).padStart(2, '0');
+    dates.push(`${year}-${month}-${day}`);
+  }
+  return dates;
 }
 
 export const ReservationModal: React.FC<ReservationModalProps> = ({
@@ -102,6 +135,12 @@ export const ReservationModal: React.FC<ReservationModalProps> = ({
 
   // Observações - ÚNICO CAMPO OPCIONAL
   const [observacoes, setObservacoes] = useState('');
+
+  // Agendamento Recorrente
+  const [isRecurring, setIsRecurring] = useState(false);
+  const [recurrenceFreq, setRecurrenceFreq] = useState<'semanal' | 'quinzenal' | 'mensal'>('semanal');
+  const [recurrenceCount, setRecurrenceCount] = useState<number>(4);
+
   const [error, setError] = useState<string | null>(null);
   const formRef = useRef<HTMLFormElement>(null);
 
@@ -291,6 +330,41 @@ export const ReservationModal: React.FC<ReservationModalProps> = ({
     return check.hasConflict ? check.conflictingWith : null;
   }, [dia, sala, customSala, isCustomSala, horaInicial, horaFinal, existingReservations, editingReservation]);
 
+  // Preview e validação de conflitos para cada ocorrência da recorrência
+  const recurringPreview = useMemo(() => {
+    if (!isRecurring || editingReservation || !dia) return [];
+    const dates = calculateRecurringDates(dia, recurrenceFreq, recurrenceCount);
+    const finalSala = isCustomSala ? customSala.trim() : sala.trim();
+
+    return dates.map((dateStr, idx) => {
+      const conflictCheck = hasTimeConflict(existingReservations, {
+        dia: dateStr,
+        sala: finalSala,
+        horaInicial,
+        horaFinal,
+      });
+      return {
+        indice: idx + 1,
+        total: dates.length,
+        dia: dateStr,
+        hasConflict: conflictCheck.hasConflict,
+        conflictingWith: conflictCheck.conflictingWith,
+      };
+    });
+  }, [
+    isRecurring,
+    editingReservation,
+    dia,
+    recurrenceFreq,
+    recurrenceCount,
+    isCustomSala,
+    customSala,
+    sala,
+    horaInicial,
+    horaFinal,
+    existingReservations,
+  ]);
+
   if (!isOpen) return null;
 
   const handleRoomsUpdated = (updatedRooms: Sala[], selectedRoomName?: string) => {
@@ -404,23 +478,48 @@ export const ReservationModal: React.FC<ReservationModalProps> = ({
       setAllowConflict(true);
     }
 
-    onSave({
-      id: editingReservation ? editingReservation.id : undefined,
-      dia,
-      filial: finalFilial,
-      sala: finalSala,
-      horaInicial,
-      horaFinal,
-      solicitante: solicitante.trim(),
-      setor: finalSetor,
-      glpi: glpi.replace('#', '').trim(),
-      observacoes: observacoes.trim(), // Único campo opcional
-      criadoPor: editingReservation?.criadoPor || currentUser?.primeiroNome || 'Operador',
-      criadoPorCpf: editingReservation?.criadoPorCpf || currentUser?.cpf || '',
-      modificadoPor: currentUser?.primeiroNome || 'Operador',
-      modificadoPorCpf: currentUser?.cpf || '',
-      modificadoEm: new Date().toISOString(),
-    });
+    if (!editingReservation && isRecurring && recurringPreview.length > 1) {
+      const recurrenceGroupId = `rec-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
+      const itemsToSave = recurringPreview.map((item) => ({
+        dia: item.dia,
+        filial: finalFilial,
+        sala: finalSala,
+        horaInicial,
+        horaFinal,
+        solicitante: solicitante.trim(),
+        setor: finalSetor,
+        glpi: glpi.replace('#', '').trim(),
+        observacoes: observacoes.trim()
+          ? `[Recorrência ${item.indice}/${item.total}] ${observacoes.trim()}`
+          : `[Recorrência ${item.indice}/${item.total}]`,
+        criadoPor: currentUser?.primeiroNome || 'Operador',
+        criadoPorCpf: currentUser?.cpf || '',
+        modificadoPor: currentUser?.primeiroNome || 'Operador',
+        modificadoPorCpf: currentUser?.cpf || '',
+        modificadoEm: new Date().toISOString(),
+        recorrenciaId: recurrenceGroupId,
+        recorrenciaTag: `${item.indice}/${item.total}`,
+      }));
+      onSave(itemsToSave);
+    } else {
+      onSave({
+        id: editingReservation ? editingReservation.id : undefined,
+        dia,
+        filial: finalFilial,
+        sala: finalSala,
+        horaInicial,
+        horaFinal,
+        solicitante: solicitante.trim(),
+        setor: finalSetor,
+        glpi: glpi.replace('#', '').trim(),
+        observacoes: observacoes.trim(), // Único campo opcional
+        criadoPor: editingReservation?.criadoPor || currentUser?.primeiroNome || 'Operador',
+        criadoPorCpf: editingReservation?.criadoPorCpf || currentUser?.cpf || '',
+        modificadoPor: currentUser?.primeiroNome || 'Operador',
+        modificadoPorCpf: currentUser?.cpf || '',
+        modificadoEm: new Date().toISOString(),
+      });
+    }
 
     onClose();
   };
@@ -761,6 +860,20 @@ export const ReservationModal: React.FC<ReservationModalProps> = ({
               </div>
             </div>
 
+            {/* RADAR DE DISPONIBILIDADE EM TEMPO REAL (NOVA MELHORIA) */}
+            <AvailabilityRadar
+              dia={dia}
+              sala={isCustomSala ? customSala : sala}
+              horaInicial={horaInicial}
+              horaFinal={horaFinal}
+              existingReservations={existingReservations}
+              editingReservationId={editingReservation?.id}
+              onSelectTimeSlot={(start, end) => {
+                setHoraInicial(start);
+                setHoraFinal(end);
+              }}
+            />
+
             {/* LINHA 4: SOLICITANTE E SETOR (CAMPOS OBRIGATÓRIOS) */}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
@@ -859,6 +972,117 @@ export const ReservationModal: React.FC<ReservationModalProps> = ({
                 className="w-full px-3.5 py-2.5 text-sm bg-[#EAEAEA]/40 border-2 border-[#252A34]/15 rounded-xl focus:ring-2 focus:ring-[#AD2F3B] text-[#252A34] font-medium"
               />
             </div>
+
+            {/* LINHA 6: AGENDAMENTO RECORRENTE (OPCIONAL - APENAS PARA NOVAS RESERVAS) */}
+            {!editingReservation && (
+              <div className="p-3.5 bg-slate-50 border border-slate-200 rounded-2xl space-y-3 font-dm-sans">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <div className="w-7 h-7 rounded-lg bg-[#7D1416]/10 text-[#7D1416] flex items-center justify-center">
+                      <Repeat className="w-4 h-4 text-[#7D1416]" />
+                    </div>
+                    <div>
+                      <span className="text-xs font-bold text-[#252A34] font-raleway flex items-center gap-1.5">
+                        Reserva Recorrente (Repetir Agendamento)
+                        <span className="text-[10px] font-bold px-1.5 py-0.2 rounded-full bg-slate-200 text-slate-700">
+                          Opcional
+                        </span>
+                      </span>
+                      <p className="text-[11px] text-slate-500">
+                        Repetir automaticamente este horário em semanas ou meses subsequentes
+                      </p>
+                    </div>
+                  </div>
+
+                  <label className="relative inline-flex items-center cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={isRecurring}
+                      onChange={(e) => setIsRecurring(e.target.checked)}
+                      className="sr-only peer"
+                    />
+                    <div className="w-10 h-5 bg-slate-300 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-[#7D1416]"></div>
+                  </label>
+                </div>
+
+                {isRecurring && (
+                  <div className="pt-2 border-t border-slate-200 space-y-3 animate-in fade-in duration-200">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <div>
+                        <label className="block text-[11px] font-bold text-slate-700 uppercase mb-1">
+                          Frequência de Repetição
+                        </label>
+                        <select
+                          value={recurrenceFreq}
+                          onChange={(e) => setRecurrenceFreq(e.target.value as any)}
+                          className="w-full px-3 py-2 text-xs bg-white border border-slate-200 rounded-xl focus:border-[#7D1416] font-semibold text-slate-800"
+                        >
+                          <option value="semanal">Semanalmente (a cada 7 dias)</option>
+                          <option value="quinzenal">Quinzenalmente (a cada 14 dias)</option>
+                          <option value="mensal">Mensalmente (mesmo dia do mês)</option>
+                        </select>
+                      </div>
+
+                      <div>
+                        <label className="block text-[11px] font-bold text-slate-700 uppercase mb-1">
+                          Quantidade de Ocorrências ({recurrenceCount} reservas)
+                        </label>
+                        <select
+                          value={recurrenceCount}
+                          onChange={(e) => setRecurrenceCount(Number(e.target.value))}
+                          className="w-full px-3 py-2 text-xs bg-white border border-slate-200 rounded-xl focus:border-[#7D1416] font-semibold text-slate-800"
+                        >
+                          <option value={2}>2 ocorrências (Data atual + 1 repetição)</option>
+                          <option value={3}>3 ocorrências (Data atual + 2 repetições)</option>
+                          <option value={4}>4 ocorrências (1 mês completo)</option>
+                          <option value={6}>6 ocorrências</option>
+                          <option value={8}>8 ocorrências (2 meses completos)</option>
+                          <option value={12}>12 ocorrências (3 meses completos)</option>
+                        </select>
+                      </div>
+                    </div>
+
+                    {/* Pre-Conflict Preview */}
+                    <div className="p-2.5 bg-white border border-slate-200 rounded-xl space-y-1.5">
+                      <div className="flex items-center justify-between text-[11px]">
+                        <span className="font-bold text-slate-700 flex items-center gap-1">
+                          <CalendarRange className="w-3.5 h-3.5 text-[#AD2F3B]" />
+                          Cronograma de Datas Planejadas:
+                        </span>
+                        <span className="text-slate-500 font-medium">
+                          {recurringPreview.filter((p) => !p.hasConflict).length} de {recurringPreview.length} datas livres
+                        </span>
+                      </div>
+
+                      <div className="flex flex-wrap gap-1.5 max-h-28 overflow-y-auto pt-1">
+                        {recurringPreview.map((item) => (
+                          <div
+                            key={item.dia}
+                            className={`px-2 py-1 rounded-lg text-[10px] font-bold flex items-center gap-1 border ${
+                              item.hasConflict
+                                ? 'bg-rose-50 border-rose-300 text-rose-800'
+                                : 'bg-emerald-50 border-emerald-300 text-emerald-800'
+                            }`}
+                            title={
+                              item.hasConflict
+                                ? `Conflito com GLPI #${item.conflictingWith?.glpi} (${item.conflictingWith?.solicitante})`
+                                : 'Horário livre'
+                            }
+                          >
+                            <span>#{item.indice}: {formatDateBR(item.dia)}</span>
+                            {item.hasConflict ? (
+                              <AlertTriangle className="w-3 h-3 text-rose-600" />
+                            ) : (
+                              <CheckCircle2 className="w-3 h-3 text-emerald-600" />
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
 
             {/* Footer Buttons: Fixo na parte inferior */}
             <div className="shrink-0 pt-3 pb-1 border-t border-slate-200 flex items-center justify-end gap-3 sticky bottom-0 bg-white/95 backdrop-blur-xs z-10">

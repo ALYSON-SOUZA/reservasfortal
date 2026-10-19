@@ -20,16 +20,23 @@ import { MonthlyCalendarOverlay } from './components/MonthlyCalendarOverlay';
 import { ReservationDetailModal } from './components/ReservationDetailModal';
 import { NotificationCenterModal } from './components/NotificationCenterModal';
 import { UserProfileModal } from './components/UserProfileModal';
+import { AuditLogModal } from './components/AuditLogModal';
 import { ToastContainer } from './components/ToastContainer';
 import { LoginScreen } from './components/LoginScreen';
 import { authService, extractFirstName } from './services/authService';
 import { reservationService, getLocalReservations } from './services/reservationService';
 import { notificationService } from './services/notificationService';
+import { auditService } from './services/auditService';
 import { salaService } from './services/salaService';
 import { setorService } from './services/setorService';
 import { filialService } from './services/filialService';
 import { isReservationExpired, hasTimeConflict } from './utils/dateUtils';
 import { canEditOrDelete, MASTER_USERS } from './utils/rbac';
+import {
+  resolveReservationFilial,
+  matchesFilialFilter,
+  normalizeFilialName,
+} from './utils/filialUtils';
 
 export default function App() {
   // Sessão do usuário logado (CPF e Nome)
@@ -159,6 +166,7 @@ export default function App() {
     glpi: '',
     sala: '',
     setor: '',
+    filial: '',
     mostrarEncerradas: false, // Por padrão, exibe apenas as próximas reservas válidas
   });
 
@@ -190,6 +198,7 @@ export default function App() {
   const [isNotificationCenterOpen, setIsNotificationCenterOpen] = useState(false);
   const [notificationStatus, setNotificationStatus] = useState<NotificationPermission | 'unsupported'>('default');
   const [isCpfMasked, setIsCpfMasked] = useState<boolean>(true);
+  const [isAuditModalOpen, setIsAuditModalOpen] = useState(false);
 
   // Modal de Ficha Cadastral e Perfil do Usuário
   const [isUserProfileModalOpen, setIsUserProfileModalOpen] = useState(false);
@@ -310,34 +319,6 @@ export default function App() {
     };
   }, [isAiModalOpen]);
 
-  // Mapeamento dinâmico de Sala -> Filial para filtragem precisa de reservas
-  const roomFilialMap = useMemo(() => {
-    const map = new Map<string, string>();
-    rooms.forEach((r) => {
-      if (r.nome && r.filial) {
-        map.set(r.nome.toLowerCase().trim(), r.filial.trim());
-      }
-    });
-    return map;
-  }, [rooms]);
-
-  const resolveReservationFilial = (res: Reservation): string => {
-    if (res.filial && res.filial.trim()) return res.filial.trim();
-    const fromMap = roomFilialMap.get((res.sala || '').toLowerCase().trim());
-    if (fromMap) return fromMap;
-
-    // Heurística de fallback caso a filial não esteja explicitamente salva
-    const sName = (res.sala || '').toLowerCase();
-    if (sName.includes('maringá') || sName.includes('maringa') || sName.includes('matriz')) return 'Maringá (Matriz)';
-    if (sName.includes('park') || sName.includes('business')) return 'Curitiba Park & Business';
-    if (sName.includes('cebp')) return 'Curitiba/CEBP';
-    if (sName.includes('marechal')) return 'Curitiba/Marechal';
-    if (sName.includes('toronto')) return 'Curitiba/Toronto';
-    if (sName.includes('fortaleza') || sName.includes('planalto') || sName.includes('215') || sName.includes('216') || sName.includes('212') || sName.includes('116') || sName.includes('118')) return 'Fortaleza/planalto';
-
-    return '';
-  };
-
   // Lista filtrada para exibição (com suporte a filial, período, sala, setor, solicitante e GLPI)
   const filteredReservations = useMemo(() => {
     const hasDateFilter = Boolean(filters.dataInicio || filters.dataFim || filters.data);
@@ -351,11 +332,9 @@ export default function App() {
           }
         }
 
-        // 2. Filtro por Filial (Maringá, Curitiba Park & Business, Curitiba/CEBP, Curitiba/Marechal, Curitiba/Toronto, Fortaleza/planalto)
+        // 2. Filtro por Filial (Maringá (Matriz), Curitiba Park & Business, Curitiba/CEBP, Curitiba/Marechal, Curitiba/Toronto, Fortaleza/planalto)
         if (filters.filial && filters.filial.trim()) {
-          const resFilial = resolveReservationFilial(res);
-          const target = filters.filial.trim().toLowerCase();
-          if (!resFilial || resFilial.toLowerCase() !== target) {
+          if (!matchesFilialFilter(res, filters.filial, rooms)) {
             return false;
           }
         }
@@ -405,7 +384,7 @@ export default function App() {
         }
         return a.horaInicial.localeCompare(b.horaInicial);
       });
-  }, [reservations, filters, now, roomFilialMap]);
+  }, [reservations, filters, now, rooms]);
 
   // Contagem de próximas reservas ativas (considerando o filtro ativo para consistência)
   const nextReservationsCount = useMemo(() => {
@@ -445,12 +424,49 @@ export default function App() {
   };
 
   const handleSaveReservation = async (
-    data: Omit<Reservation, 'id' | 'criadoEm'> & { id?: string }
+    data: (Omit<Reservation, 'id' | 'criadoEm'> & { id?: string }) | Array<Omit<Reservation, 'id' | 'criadoEm'> & { id?: string }>
   ) => {
     const operatorFirstName = currentUser?.primeiroNome || 'Operador';
     const operatorCpf = currentUser?.cpf || '';
     const nowIso = new Date().toISOString();
 
+    // Caso 1: Array de Reservas Recorrentes
+    if (Array.isArray(data)) {
+      if (data.length === 0) return;
+      const preparedItems = data.map((item) => ({
+        ...item,
+        criadoPor: operatorFirstName,
+        criadoPorCpf: operatorCpf,
+        modificadoPor: operatorFirstName,
+        modificadoPorCpf: operatorCpf,
+        modificadoEm: nowIso,
+      }));
+
+      const result = await reservationService.createMany(preparedItems);
+      const createdList = result.data;
+      if (createdList.length > 0) {
+        setReservations((prev) => [...createdList, ...prev.filter((p) => !createdList.some((c) => c.id === p.id))]);
+
+        auditService.logAction({
+          acao: 'CRIACAO',
+          titulo: `Agendamento Recorrente (${createdList.length} ocorrências): ${data[0].sala}`,
+          detalhes: `Chamado GLPI #${data[0].glpi} - Solicitante: ${data[0].solicitante}. Período: ${data[0].dia} até ${data[data.length - 1].dia} das ${data[0].horaInicial} às ${data[0].horaFinal}.`,
+          usuarioNome: operatorFirstName,
+          usuarioCpf: operatorCpf,
+          glpi: data[0].glpi,
+          sala: data[0].sala,
+        });
+
+        addToast(
+          'success',
+          `🎉 ${createdList.length} reservas recorrentes agendadas com sucesso na ${data[0].sala} por ${operatorFirstName}!`,
+          'Recorrência Criada'
+        );
+      }
+      return;
+    }
+
+    // Caso 2: Edição de Reserva Existente
     if (data.id) {
       if (!canEditOrDelete(currentUser)) {
         addToast(
@@ -488,12 +504,24 @@ export default function App() {
         return next;
       });
 
+      auditService.logAction({
+        acao: 'EDICAO',
+        titulo: `Reserva editada: ${data.sala}`,
+        detalhes: `GLPI #${data.glpi} - Solicitante: ${data.solicitante} (${data.dia} ${data.horaInicial} às ${data.horaFinal})`,
+        usuarioNome: operatorFirstName,
+        usuarioCpf: operatorCpf,
+        glpi: data.glpi,
+        sala: data.sala,
+        reservaId: data.id,
+      });
+
       if (result.isSupabase) {
         addToast('success', `Reserva da ${data.sala} salva com sucesso no Supabase por ${operatorFirstName}!`, 'Atualização Salva');
       } else {
         addToast('success', `Reserva da ${data.sala} atualizada e gravada com sucesso por ${operatorFirstName}!`, 'Atualização Salva');
       }
     } else {
+      // Caso 3: Nova Reserva Individual
       const tempId = typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `res-${Date.now()}`;
       const payload = {
         ...data,
@@ -520,12 +548,107 @@ export default function App() {
           ...prev.filter((r) => r.id !== result.data.id && r.id !== tempId),
         ]);
       }
+
+      auditService.logAction({
+        acao: 'CRIACAO',
+        titulo: `Nova reserva criada: ${data.sala}`,
+        detalhes: `GLPI #${data.glpi} - ${data.solicitante} (${data.dia} ${data.horaInicial} às ${data.horaFinal})`,
+        usuarioNome: operatorFirstName,
+        usuarioCpf: operatorCpf,
+        glpi: data.glpi,
+        sala: data.sala,
+      });
+
       if (result.isSupabase) {
         addToast('success', `Nova reserva na ${data.sala} gravada no Supabase por ${operatorFirstName}!`, 'Reserva Confirmada');
       } else {
         addToast('success', `Nova reserva na ${data.sala} cadastrada e gravada com sucesso por ${operatorFirstName}!`, 'Reserva Confirmada');
       }
     }
+  };
+
+  // Check-in Operacional da Sala (Confirma Presença)
+  const handleCheckIn = async (res: Reservation) => {
+    const operator = currentUser?.primeiroNome || 'Operador';
+    const operatorCpf = currentUser?.cpf || '';
+    const nowIso = new Date().toISOString();
+
+    const updated: Reservation = {
+      ...res,
+      status: 'checkin_realizado',
+      checkinEm: nowIso,
+      modificadoPor: operator,
+      modificadoPorCpf: operatorCpf,
+      modificadoEm: nowIso,
+    };
+
+    setReservations((prev) => prev.map((item) => (item.id === res.id ? updated : item)));
+    await reservationService.update(res.id, updated);
+
+    notificationService.playChimeSound();
+    auditService.logAction({
+      acao: 'CHECKIN',
+      titulo: `Check-in Confirmado: ${res.sala}`,
+      detalhes: `Presença física confirmada na sala para a reunião do GLPI #${res.glpi} (${res.solicitante}).`,
+      usuarioNome: operator,
+      usuarioCpf: operatorCpf,
+      glpi: res.glpi,
+      sala: res.sala,
+      reservaId: res.id,
+    });
+
+    addToast(
+      'success',
+      `Check-in efetuado com sucesso na ${res.sala}! A sala foi sinalizada como em uso ativo.`,
+      'Check-in Confirmado'
+    );
+  };
+
+  // Liberação Antecipada da Sala (Disponibiliza para Outros)
+  const handleReleaseRoom = async (res: Reservation) => {
+    const operator = currentUser?.primeiroNome || 'Operador';
+    const operatorCpf = currentUser?.cpf || '';
+    const nowIso = new Date().toISOString();
+
+    // Obter horário atual HH:mm
+    const nowHours = String(new Date().getHours()).padStart(2, '0');
+    const nowMins = String(new Date().getMinutes()).padStart(2, '0');
+    const currentTimeStr = `${nowHours}:${nowMins}`;
+
+    // Ajusta horaFinal para agora se for antes do término previsto, liberando a sala no radar
+    const newEnd =
+      currentTimeStr < res.horaFinal && currentTimeStr > res.horaInicial ? currentTimeStr : res.horaFinal;
+
+    const updated: Reservation = {
+      ...res,
+      horaFinal: newEnd,
+      status: 'liberada_antecipadamente',
+      liberadaEm: nowIso,
+      liberadaPor: operator,
+      modificadoPor: operator,
+      modificadoPorCpf: operatorCpf,
+      modificadoEm: nowIso,
+    };
+
+    setReservations((prev) => prev.map((item) => (item.id === res.id ? updated : item)));
+    await reservationService.update(res.id, updated);
+
+    auditService.logAction({
+      acao: 'LIBERACAO',
+      titulo: `Sala Liberada Antecipadamente: ${res.sala}`,
+      detalhes: `A sala foi liberada às ${newEnd} para novos agendamentos (GLPI #${res.glpi} - ${res.solicitante}).`,
+      usuarioNome: operator,
+      usuarioCpf: operatorCpf,
+      glpi: res.glpi,
+      sala: res.sala,
+      reservaId: res.id,
+    });
+
+    addToast(
+      'success',
+      `A sala ${res.sala} foi liberada com sucesso! O horário restante foi disponibilizado para outros colaboradores.`,
+      'Sala Liberada'
+    );
   };
 
   // Criação em lote a partir do Assistente IA
@@ -606,6 +729,18 @@ export default function App() {
       setDeletingReservation(null);
 
       await reservationService.delete(targetId);
+
+      auditService.logAction({
+        acao: 'EXCLUSAO',
+        titulo: `Reserva excluída: ${deletingReservation.sala}`,
+        detalhes: `Chamado GLPI #${targetGlpi} - ${deletingReservation.solicitante} (${deletingReservation.dia} das ${deletingReservation.horaInicial} às ${deletingReservation.horaFinal}).`,
+        usuarioNome: operatorFirstName,
+        usuarioCpf: currentUser?.cpf || '',
+        glpi: targetGlpi,
+        sala: deletingReservation.sala,
+        reservaId: targetId,
+      });
+
       addToast('info', `Reserva GLPI #${targetGlpi} excluída por ${operatorFirstName}.`, 'Exclusão Registrada');
       return;
     }
@@ -703,6 +838,7 @@ export default function App() {
         onOpenSectorManagerModal={() => setIsSectorManagerModalOpen(true)}
         onOpenRoomManagerModal={() => setIsRoomManagerModalOpen(true)}
         onOpenBranchManagerModal={() => setIsBranchManagerOpen(true)}
+        onOpenAuditModal={() => setIsAuditModalOpen(true)}
         isCpfMasked={isCpfMasked}
         onToggleCpfMask={() => setIsCpfMasked((prev) => !prev)}
         filiaisList={filiais}
@@ -740,7 +876,7 @@ export default function App() {
             reservations={filteredReservations}
             rooms={
               filters.filial && filters.filial.trim()
-                ? rooms.filter((r) => r.filial.toLowerCase().trim() === filters.filial.toLowerCase().trim())
+                ? rooms.filter((r) => normalizeFilialName(r.filial) === normalizeFilialName(filters.filial))
                 : rooms
             }
             onSelectReservation={handleOpenDetailModal}
@@ -756,6 +892,7 @@ export default function App() {
           <ReservationTable
             reservations={filteredReservations}
             allReservations={reservations}
+            rooms={rooms}
             currentUser={currentUser}
             onEdit={handleOpenEditModal}
             onDelete={handleOpenDeleteModal}
@@ -774,6 +911,8 @@ export default function App() {
               filters.mostrarEncerradas
             )}
             onResetFilters={handleResetFilters}
+            onCheckIn={handleCheckIn}
+            onReleaseRoom={handleReleaseRoom}
           />
         )}
       </main>
@@ -830,6 +969,7 @@ export default function App() {
         onResetFilters={handleResetFilters}
         availableRooms={availableRooms}
         availableSectors={availableSectors}
+        availableFiliais={filiais.map((f) => f.nome)}
         totalFiltered={filteredReservations.length}
         totalAll={reservations.length}
       />
@@ -962,6 +1102,8 @@ export default function App() {
         onEdit={(res) => handleOpenEditModal(res)}
         onDelete={(res) => handleOpenDeleteModal(res)}
         onViewUserProfile={handleOpenUserProfile}
+        onCheckIn={handleCheckIn}
+        onReleaseRoom={handleReleaseRoom}
       />
 
       {/* Central de Notificações Agendadas no Navegador (15 min antes) */}
@@ -986,6 +1128,13 @@ export default function App() {
           setCurrentUser(updated);
         }}
         onToast={addToast}
+      />
+
+      {/* Modal de Histórico de Auditoria & Governança (LGPD) */}
+      <AuditLogModal
+        isOpen={isAuditModalOpen}
+        onClose={() => setIsAuditModalOpen(false)}
+        isMaster={currentUser?.role === 'MASTER'}
       />
     </div>
   );

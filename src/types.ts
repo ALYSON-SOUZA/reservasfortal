@@ -25,6 +25,25 @@ export interface Reservation {
   modificadoPor?: string;
   modificadoPorCpf?: string;
   modificadoEm?: string;
+  status?: 'confirmada' | 'checkin_realizado' | 'liberada_antecipadamente' | 'cancelada';
+  checkinEm?: string;
+  liberadaEm?: string;
+  liberadaPor?: string;
+  recorrenciaId?: string;
+  recorrenciaTag?: string;
+}
+
+export interface AuditLogItem {
+  id: string;
+  dataHora: string;
+  acao: 'CRIACAO' | 'EDICAO' | 'EXCLUSAO' | 'CHECKIN' | 'LIBERACAO' | 'USUARIO_ATUALIZADO' | 'SISTEMA';
+  titulo: string;
+  detalhes: string;
+  usuarioNome: string;
+  usuarioCpf?: string;
+  reservaId?: string;
+  glpi?: string;
+  sala?: string;
 }
 
 export interface FilialInfo {

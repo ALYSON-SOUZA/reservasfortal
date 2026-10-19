@@ -314,6 +314,7 @@ export const reservationService = {
 
     try {
       // Cria payload sem enviar ID customizado incompatível para o Supabase
+      // Nota: 'filial' é atributo da Sala cadastrada em public.salas e não existe na tabela public.reservations
       const basePayload: Record<string, any> = {
         dia: reservationData.dia,
         sala: reservationData.sala,
@@ -325,7 +326,6 @@ export const reservationService = {
         observacoes: reservationData.observacoes || null,
       };
 
-      if (reservationData.filial) basePayload.filial = reservationData.filial;
       if (reservationData.criadoPor) basePayload.criado_por = reservationData.criadoPor;
       if (reservationData.modificadoPor) basePayload.modificado_por = reservationData.modificadoPor;
 
@@ -497,8 +497,6 @@ export const reservationService = {
       glpi: (reservationData.glpi || '').replace('#', '').trim(),
       observacoes: reservationData.observacoes ? reservationData.observacoes.trim() : null,
     };
-
-    if (reservationData.filial) basePayload.filial = reservationData.filial;
 
     const fullPayload: Record<string, any> = { ...basePayload };
     if (reservationData.criadoPor) fullPayload.criado_por = reservationData.criadoPor;

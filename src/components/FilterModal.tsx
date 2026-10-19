@@ -1,8 +1,9 @@
 import React from 'react';
 import { FilterOptions } from '../types';
-import { X, Search, Calendar, User, Ticket, Building, Layers, RotateCcw, CheckCircle, Eye, EyeOff, CalendarRange, AlertCircle } from 'lucide-react';
+import { X, Search, Calendar, User, Ticket, Building, Building2, Layers, RotateCcw, CheckCircle, Eye, EyeOff, CalendarRange, AlertCircle } from 'lucide-react';
 import { DEFAULT_SALAS, DEFAULT_SETORES } from '../utils/mockData';
 import { formatDateBR, getTodayString } from '../utils/dateUtils';
+import { OFFICIAL_FILIAIS_LIST } from '../utils/filialUtils';
 
 interface FilterModalProps {
   isOpen: boolean;
@@ -12,6 +13,7 @@ interface FilterModalProps {
   onResetFilters: () => void;
   availableRooms: string[];
   availableSectors: string[];
+  availableFiliais?: string[];
   totalFiltered: number;
   totalAll: number;
 }
@@ -24,6 +26,7 @@ export const FilterModal: React.FC<FilterModalProps> = ({
   onResetFilters,
   availableRooms,
   availableSectors,
+  availableFiliais = [],
 }) => {
   const [tempFilters, setTempFilters] = React.useState<FilterOptions>(filters);
 
@@ -35,6 +38,7 @@ export const FilterModal: React.FC<FilterModalProps> = ({
 
   const roomsList = Array.from(new Set([...DEFAULT_SALAS, ...availableRooms]));
   const sectorsList = Array.from(new Set([...DEFAULT_SETORES, ...availableSectors]));
+  const filiaisList = Array.from(new Set([...OFFICIAL_FILIAIS_LIST, ...availableFiliais]));
 
   const hasChanges =
     Boolean(tempFilters.data) ||
@@ -301,6 +305,27 @@ export const FilterModal: React.FC<FilterModalProps> = ({
                 <span className="absolute left-3 top-2.5 text-[#252A34]/50 font-bold text-sm">#</span>
               </div>
             </div>
+          </div>
+
+          {/* Filtro por Filial / Unidade */}
+          <div>
+            <label htmlFor="filtro-modal-filial" className="block text-xs font-bold text-[#252A34] mb-1.5 flex items-center gap-1.5 font-dm">
+              <Building2 className="w-3.5 h-3.5 text-[#7D1416]" />
+              <span>Por Unidade / Filial</span>
+            </label>
+            <select
+              id="filtro-modal-filial"
+              value={tempFilters.filial || ''}
+              onChange={(e) => setTempFilters({ ...tempFilters, filial: e.target.value })}
+              className="w-full px-3.5 py-2.5 text-sm bg-slate-50 border-2 border-[#252A34]/15 rounded-xl focus:ring-2 focus:ring-[#AD2F3B] focus:border-[#AD2F3B] text-[#252A34] font-medium"
+            >
+              <option value="">Todas as Filiais</option>
+              {filiaisList.map((f) => (
+                <option key={f} value={f}>
+                  {f}
+                </option>
+              ))}
+            </select>
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">

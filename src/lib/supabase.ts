@@ -36,11 +36,11 @@ export const supabase: SupabaseClient | null = isSupabaseConfigured
             return Promise.reject(new Error(rateCheck.error || 'Taxa limite de requisições ao Supabase excedida.'));
           }
 
-          // Timeout de 3500ms para evitar bloqueios ou travamentos em celulares ou conexões lentas
+          // Timeout de 10000ms para evitar bloqueios ou falsos timeouts em conexões móveis
           const controller = new AbortController();
           const timeoutId = setTimeout(() => {
             controller.abort();
-          }, 3500);
+          }, 10000);
 
           return fetch(url, {
             ...options,
@@ -98,7 +98,6 @@ export const toDbReservation = (
   ...(app.id ? { id: app.id } : {}),
   dia: app.dia,
   sala: app.sala,
-  filial: app.filial || null,
   hora_inicial: app.horaInicial,
   hora_final: app.horaFinal,
   solicitante: app.solicitante,

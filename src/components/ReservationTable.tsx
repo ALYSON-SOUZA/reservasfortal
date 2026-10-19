@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { Reservation, AppUser } from '../types';
+import React, { useState, useMemo } from 'react';
+import { Reservation, AppUser, Sala } from '../types';
 import {
   formatDateBR,
   getReservationStatus,
@@ -7,13 +7,22 @@ import {
   getConflictPriorityInfo,
   formatDateTimeBR,
   formatShortAuditDate,
+  getTodayString,
 } from '../utils/dateUtils';
 import { canEditOrDelete } from '../utils/rbac';
+import { generateGoogleCalendarUrl, downloadIcsFile } from '../utils/calendarExport';
+import {
+  resolveReservationFilial,
+  normalizeFilialName,
+} from '../utils/filialUtils';
 import {
   Calendar,
   Clock,
   User,
   Building,
+  Building2,
+  MapPin,
+  Crown,
   Ticket,
   Edit2,
   Trash2,
@@ -28,11 +37,16 @@ import {
   Eye,
   Lock,
   Star,
+  DoorOpen,
+  Repeat,
+  Download,
+  ExternalLink,
 } from 'lucide-react';
 
 interface ReservationTableProps {
   reservations: Reservation[];
   allReservations?: Reservation[];
+  rooms?: Sala[];
   currentUser?: AppUser | null;
   onEdit: (reservation: Reservation) => void;
   onDelete: (reservation: Reservation) => void;
@@ -41,11 +55,14 @@ interface ReservationTableProps {
   onViewUserProfile?: (solicitante: string) => void;
   hasActiveFilters?: boolean;
   onResetFilters?: () => void;
+  onCheckIn?: (reservation: Reservation) => void;
+  onReleaseRoom?: (reservation: Reservation) => void;
 }
 
 export const ReservationTable: React.FC<ReservationTableProps> = ({
   reservations,
   allReservations,
+  rooms = [],
   currentUser,
   onEdit,
   onDelete,
@@ -54,9 +71,12 @@ export const ReservationTable: React.FC<ReservationTableProps> = ({
   onViewUserProfile,
   hasActiveFilters,
   onResetFilters,
+  onCheckIn,
+  onReleaseRoom,
 }) => {
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [showOnlyConflicts, setShowOnlyConflicts] = useState<boolean>(false);
+  const [quickTab, setQuickTab] = useState<'TODAS' | 'HOJE' | 'EM_ANDAMENTO' | 'MINHAS' | 'CONFLITOS' | 'LIBERADAS'>('TODAS');
   const canManage = canEditOrDelete(currentUser);
 
   // Pool de verificação de concorrência: utiliza allReservations se fornecido ou reservations
@@ -67,10 +87,36 @@ export const ReservationTable: React.FC<ReservationTableProps> = ({
     (r) => getConflictPriorityInfo(r, conflictPool).hasConflict
   ).length;
 
-  // Filtragem se o usuário optar por ver apenas as reservas em conflito
-  const displayedReservations = showOnlyConflicts
-    ? reservations.filter((r) => getConflictPriorityInfo(r, conflictPool).hasConflict)
-    : reservations;
+  // Filtragem combinada de abas rápidas e conflitos
+  const displayedReservations = useMemo(() => {
+    const today = getTodayString();
+    return reservations.filter((r) => {
+      if (showOnlyConflicts || quickTab === 'CONFLITOS') {
+        if (!getConflictPriorityInfo(r, conflictPool).hasConflict) return false;
+      }
+      if (quickTab === 'HOJE') {
+        if (r.dia !== today) return false;
+      }
+      if (quickTab === 'EM_ANDAMENTO') {
+        if (getReservationStatus(r.dia, r.horaInicial, r.horaFinal) !== 'em_andamento') return false;
+      }
+      if (quickTab === 'MINHAS' && currentUser) {
+        const pName = (currentUser.primeiroNome || '').toLowerCase();
+        const fullName = (currentUser.nome || '').toLowerCase();
+        const solicitante = (r.solicitante || '').toLowerCase();
+        const isOwner =
+          solicitante.includes(pName) ||
+          solicitante.includes(fullName) ||
+          r.criadoPorCpf === currentUser.cpf ||
+          (r.criadoPor && r.criadoPor.toLowerCase() === pName);
+        if (!isOwner) return false;
+      }
+      if (quickTab === 'LIBERADAS') {
+        if (r.status !== 'liberada_antecipadamente') return false;
+      }
+      return true;
+    });
+  }, [reservations, showOnlyConflicts, quickTab, conflictPool, currentUser]);
 
   const handleCopy = (res: Reservation) => {
     const text = `📋 Reserva de Sala — Bellinati Perez:\n• Sala: ${res.sala}\n• Data: ${formatDateBR(res.dia)}\n• Horário: ${res.horaInicial} às ${res.horaFinal}\n• Solicitante: ${res.solicitante} (${res.setor})\n• GLPI: #${res.glpi}`;
@@ -79,8 +125,112 @@ export const ReservationTable: React.FC<ReservationTableProps> = ({
     setTimeout(() => setCopiedId(null), 2000);
   };
 
-  const getStatusBadge = (dia: string, horaInicial: string, horaFinal: string) => {
-    const status = getReservationStatus(dia, horaInicial, horaFinal);
+  const renderFilialBadge = (res: Reservation) => {
+    const filial = resolveReservationFilial(res, rooms);
+    const normalized = normalizeFilialName(filial);
+
+    if (normalized === 'Maringá (Matriz)') {
+      return (
+        <span
+          title="Matriz Maringá — PR (Sede Principal Bellinati Perez)"
+          className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-bold bg-amber-50 text-amber-900 border border-amber-300 shadow-2xs whitespace-nowrap"
+        >
+          <Crown className="w-3.5 h-3.5 text-amber-600 fill-amber-500 shrink-0" />
+          <span>Maringá (Matriz)</span>
+        </span>
+      );
+    }
+
+    if (normalized === 'Curitiba Park & Business') {
+      return (
+        <span
+          title="Unidade Curitiba Park & Business — PR"
+          className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-bold bg-sky-50 text-sky-900 border border-sky-200 shadow-2xs whitespace-nowrap"
+        >
+          <Building2 className="w-3.5 h-3.5 text-sky-600 shrink-0" />
+          <span>Curitiba Park</span>
+        </span>
+      );
+    }
+
+    if (normalized === 'Curitiba/CEBP') {
+      return (
+        <span
+          title="Centro Empresarial Bellinati Perez — CEBP, Curitiba — PR"
+          className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-bold bg-indigo-50 text-indigo-900 border border-indigo-200 shadow-2xs whitespace-nowrap"
+        >
+          <Building2 className="w-3.5 h-3.5 text-indigo-600 shrink-0" />
+          <span>Curitiba/CEBP</span>
+        </span>
+      );
+    }
+
+    if (normalized === 'Curitiba/Marechal') {
+      return (
+        <span
+          title="Unidade Curitiba / Marechal — PR"
+          className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-bold bg-emerald-50 text-emerald-900 border border-emerald-200 shadow-2xs whitespace-nowrap"
+        >
+          <MapPin className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+          <span>Curitiba/Marechal</span>
+        </span>
+      );
+    }
+
+    if (normalized === 'Curitiba/Toronto') {
+      return (
+        <span
+          title="Edifício Toronto Corporate, Curitiba — PR"
+          className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-bold bg-violet-50 text-violet-900 border border-violet-200 shadow-2xs whitespace-nowrap"
+        >
+          <Building2 className="w-3.5 h-3.5 text-violet-600 shrink-0" />
+          <span>Curitiba/Toronto</span>
+        </span>
+      );
+    }
+
+    if (normalized === 'Fortaleza/planalto') {
+      return (
+        <span
+          title="Unidade Fortaleza / planalto — CE"
+          className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-bold bg-rose-50 text-[#7D1416] border border-rose-200 shadow-2xs whitespace-nowrap"
+        >
+          <MapPin className="w-3.5 h-3.5 text-[#AD2F3B] shrink-0" />
+          <span>Fortaleza/planalto</span>
+        </span>
+      );
+    }
+
+    return (
+      <span
+        title={`Filial: ${filial}`}
+        className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-bold bg-slate-100 text-slate-800 border border-slate-200 shadow-2xs whitespace-nowrap"
+      >
+        <Building2 className="w-3.5 h-3.5 text-slate-500 shrink-0" />
+        <span>{filial || 'Maringá (Matriz)'}</span>
+      </span>
+    );
+  };
+
+  const getStatusBadge = (res: Reservation) => {
+    if (res.status === 'liberada_antecipadamente') {
+      return (
+        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-bold font-dm-sans bg-purple-600 text-white shadow-xs whitespace-nowrap">
+          <DoorOpen className="w-3 h-3 text-white" />
+          Liberada
+        </span>
+      );
+    }
+    if (res.status === 'checkin_realizado') {
+      return (
+        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-bold font-dm-sans bg-emerald-600 text-white shadow-xs whitespace-nowrap">
+          <CheckCircle2 className="w-3 h-3 text-white" />
+          Check-in OK
+        </span>
+      );
+    }
+
+    const status = getReservationStatus(res.dia, res.horaInicial, res.horaFinal);
 
     switch (status) {
       case 'em_andamento':
@@ -149,6 +299,120 @@ export const ReservationTable: React.FC<ReservationTableProps> = ({
 
   return (
     <div className="space-y-4">
+      {/* Barra de Filtros Rápidos & Abas de Navegação */}
+      <div className="bg-white p-2.5 sm:p-3 rounded-2xl border border-slate-200/90 shadow-2xs flex flex-wrap items-center justify-between gap-2.5 font-dm-sans">
+        <div className="flex items-center flex-wrap gap-1.5 text-xs">
+          <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider mr-1 hidden sm:inline">
+            Visualizar:
+          </span>
+
+          <button
+            type="button"
+            onClick={() => {
+              setQuickTab('TODAS');
+              setShowOnlyConflicts(false);
+            }}
+            className={`px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer ${
+              quickTab === 'TODAS' && !showOnlyConflicts
+                ? 'bg-[#7D1416] text-white shadow-xs'
+                : 'bg-slate-100 hover:bg-slate-200 text-slate-700'
+            }`}
+          >
+            Todas ({reservations.length})
+          </button>
+
+          <button
+            type="button"
+            onClick={() => {
+              setQuickTab('HOJE');
+              setShowOnlyConflicts(false);
+            }}
+            className={`px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer flex items-center gap-1.5 ${
+              quickTab === 'HOJE'
+                ? 'bg-[#7D1416] text-white shadow-xs'
+                : 'bg-slate-100 hover:bg-slate-200 text-slate-700'
+            }`}
+          >
+            <Clock3 className="w-3.5 h-3.5" />
+            <span>Hoje</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => {
+              setQuickTab('EM_ANDAMENTO');
+              setShowOnlyConflicts(false);
+            }}
+            className={`px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer flex items-center gap-1.5 ${
+              quickTab === 'EM_ANDAMENTO'
+                ? 'bg-[#FF2E63] text-white shadow-xs'
+                : 'bg-slate-100 hover:bg-slate-200 text-slate-700'
+            }`}
+          >
+            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+            <span>Em Reunião Agora</span>
+          </button>
+
+          {currentUser && (
+            <button
+              type="button"
+              onClick={() => {
+                setQuickTab('MINHAS');
+                setShowOnlyConflicts(false);
+              }}
+              className={`px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer flex items-center gap-1.5 ${
+                quickTab === 'MINHAS'
+                  ? 'bg-[#7D1416] text-white shadow-xs'
+                  : 'bg-slate-100 hover:bg-slate-200 text-slate-700'
+              }`}
+            >
+              <User className="w-3.5 h-3.5 text-[#AD2F3B]" />
+              <span>Minhas ({currentUser.primeiroNome})</span>
+            </button>
+          )}
+
+          {conflictCount > 0 && (
+            <button
+              type="button"
+              onClick={() => {
+                setQuickTab('CONFLITOS');
+                setShowOnlyConflicts(true);
+              }}
+              className={`px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer flex items-center gap-1.5 ${
+                quickTab === 'CONFLITOS' || showOnlyConflicts
+                  ? 'bg-rose-600 text-white shadow-xs'
+                  : 'bg-rose-50 hover:bg-rose-100 text-rose-800 border border-rose-200'
+              }`}
+            >
+              <AlertTriangle className="w-3.5 h-3.5" />
+              <span>Conflitos ({conflictCount})</span>
+            </button>
+          )}
+
+          <button
+            type="button"
+            onClick={() => {
+              setQuickTab('LIBERADAS');
+              setShowOnlyConflicts(false);
+            }}
+            className={`px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer flex items-center gap-1.5 ${
+              quickTab === 'LIBERADAS'
+                ? 'bg-purple-700 text-white shadow-xs'
+                : 'bg-slate-100 hover:bg-slate-200 text-slate-700'
+            }`}
+          >
+            <DoorOpen className="w-3.5 h-3.5" />
+            <span>Salas Liberadas</span>
+          </button>
+        </div>
+
+        <div className="flex items-center gap-2">
+          <span className="text-[11px] text-slate-500 font-medium">
+            Exibindo <strong>{displayedReservations.length}</strong> de <strong>{reservations.length}</strong>
+          </span>
+        </div>
+      </div>
+
       {/* Mobile Card List (md:hidden) */}
       <div className="md:hidden space-y-3">
         {displayedReservations.map((res) => {
@@ -156,6 +420,8 @@ export const ReservationTable: React.FC<ReservationTableProps> = ({
           const conflictInfo = getConflictPriorityInfo(res, conflictPool);
           const hasConflict = conflictInfo.hasConflict;
           const conflicts = conflictInfo.conflicts;
+          const today = getTodayString();
+          const isToday = res.dia === today;
 
           return (
             <div
@@ -164,7 +430,13 @@ export const ReservationTable: React.FC<ReservationTableProps> = ({
             >
               <div className="flex items-start justify-between mb-2.5 pb-2 border-b border-slate-100 flex-wrap gap-2">
                 <div className="flex items-center gap-1.5 flex-wrap pt-1">
-                  {getStatusBadge(res.dia, res.horaInicial, res.horaFinal)}
+                  {renderFilialBadge(res)}
+                  {res.recorrenciaTag && (
+                    <span className="px-1.5 py-0.2 bg-[#7D1416]/10 text-[#7D1416] text-[10px] rounded-md font-bold flex items-center gap-0.5">
+                      <Repeat className="w-3 h-3" />
+                      #{res.recorrenciaTag}
+                    </span>
+                  )}
                   {hasConflict && (
                     <span
                       className="text-sm select-none cursor-help"
@@ -178,7 +450,52 @@ export const ReservationTable: React.FC<ReservationTableProps> = ({
                 {/* Grupo de Ações Imediatamente Acima do Número do Chamado GLPI */}
                 <div className="flex flex-col items-end gap-1.5 shrink-0">
                   {/* Botões de Ação organizados imediatamente ACIMA do chamado */}
-                  <div className="inline-flex items-center gap-1 bg-slate-100/90 p-1 rounded-lg border border-slate-200 shadow-2xs">
+                  <div className="inline-flex items-center gap-1 bg-slate-100/90 p-1 rounded-lg border border-slate-200 shadow-2xs flex-wrap">
+                    {/* Check-in Rápido */}
+                    {onCheckIn && isToday && res.status !== 'checkin_realizado' && res.status !== 'liberada_antecipadamente' && (
+                      <button
+                        type="button"
+                        onClick={() => onCheckIn(res)}
+                        title="Fazer check-in da sala"
+                        className="p-1 rounded text-emerald-700 hover:bg-emerald-100 transition cursor-pointer"
+                      >
+                        <CheckCircle2 className="w-3.5 h-3.5" />
+                      </button>
+                    )}
+
+                    {/* Liberar Sala Rápido */}
+                    {onReleaseRoom && isToday && res.status !== 'liberada_antecipadamente' && (
+                      <button
+                        type="button"
+                        onClick={() => onReleaseRoom(res)}
+                        title="Liberar sala agora para outros colaboradores"
+                        className="p-1 rounded text-purple-700 hover:bg-purple-100 transition cursor-pointer"
+                      >
+                        <DoorOpen className="w-3.5 h-3.5" />
+                      </button>
+                    )}
+
+                    {/* Adicionar ao Google Agenda */}
+                    <a
+                      href={generateGoogleCalendarUrl(res)}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      title="Adicionar ao Google Agenda"
+                      className="p-1 rounded text-slate-600 hover:text-[#7D1416] hover:bg-white transition"
+                    >
+                      <ExternalLink className="w-3.5 h-3.5" />
+                    </a>
+
+                    {/* Baixar arquivo .ICS */}
+                    <button
+                      type="button"
+                      onClick={() => downloadIcsFile(res)}
+                      title="Baixar para Outlook / Apple Calendar (.ics)"
+                      className="p-1 rounded text-slate-600 hover:text-[#252A34] hover:bg-white transition cursor-pointer"
+                    >
+                      <Download className="w-3.5 h-3.5" />
+                    </button>
+
                     {/* Ver detalhamento do chamado */}
                     <button
                       type="button"
@@ -316,11 +633,11 @@ export const ReservationTable: React.FC<ReservationTableProps> = ({
             {/* Header da Tabela em Bordô #7D1416 (Identidade Bellinati Perez) */}
             <thead>
               <tr className="bg-[#7D1416] text-white border-b-2 border-[#AD2F3B] text-[11px] sm:text-xs font-bold font-raleway tracking-wider select-none">
-                <th className="py-3 px-3 w-[11%] text-white">STATUS</th>
+                <th className="py-3 px-3 w-[14%] text-white">FILIAL</th>
                 <th className="py-3 px-2.5 w-[10%] text-white">DATA</th>
-                <th className="py-3 px-3 w-[22%] text-white">SALA</th>
-                <th className="py-3 px-2.5 w-[13%] text-white">HORÁRIO</th>
-                <th className="py-3 px-3 w-[18%] text-white">SOLICITANTE</th>
+                <th className="py-3 px-3 w-[21%] text-white">SALA</th>
+                <th className="py-3 px-2.5 w-[12%] text-white">HORÁRIO</th>
+                <th className="py-3 px-3 w-[17%] text-white">SOLICITANTE</th>
                 <th className="py-3 px-2.5 w-[10%] text-white">SETOR</th>
                 <th className="py-3 px-3 w-[16%] text-center text-white">CHAMADO GLPI & AÇÕES</th>
               </tr>
@@ -349,10 +666,16 @@ export const ReservationTable: React.FC<ReservationTableProps> = ({
                         : 'bg-[#EAEAEA]/35'
                     }`}
                   >
-                    {/* Status */}
-                    <td className="py-2.5 px-3 align-middle">
-                      <div className="flex items-center gap-1.5">
-                        {getStatusBadge(res.dia, res.horaInicial, res.horaFinal)}
+                    {/* FILIAL */}
+                    <td className="py-2.5 px-3 align-middle whitespace-nowrap">
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        {renderFilialBadge(res)}
+                        {res.recorrenciaTag && (
+                          <span className="px-1.5 py-0.2 bg-[#7D1416]/10 text-[#7D1416] text-[10px] rounded-md font-bold flex items-center gap-0.5" title={`Ocorrência #${res.recorrenciaTag}`}>
+                            <Repeat className="w-3 h-3" />
+                            #{res.recorrenciaTag}
+                          </span>
+                        )}
                         {hasConflict && (
                           <span
                             className="text-sm select-none cursor-help"
@@ -471,6 +794,51 @@ export const ReservationTable: React.FC<ReservationTableProps> = ({
                       <div className="flex flex-col items-center justify-center gap-1.5">
                         {/* Botões de Ação organizados imediatamente ACIMA do número do chamado */}
                         <div className="inline-flex items-center gap-1 bg-slate-100/90 p-1 rounded-lg border border-slate-200 shadow-2xs">
+                          {/* Check-in Rápido */}
+                          {onCheckIn && res.dia === getTodayString() && res.status !== 'checkin_realizado' && res.status !== 'liberada_antecipadamente' && (
+                            <button
+                              type="button"
+                              onClick={() => onCheckIn(res)}
+                              title="Fazer check-in da sala"
+                              className="p-1 rounded text-emerald-700 hover:bg-emerald-100 transition cursor-pointer"
+                            >
+                              <CheckCircle2 className="w-3.5 h-3.5" />
+                            </button>
+                          )}
+
+                          {/* Liberar Sala Rápido */}
+                          {onReleaseRoom && res.dia === getTodayString() && res.status !== 'liberada_antecipadamente' && (
+                            <button
+                              type="button"
+                              onClick={() => onReleaseRoom(res)}
+                              title="Liberar sala agora para outros colaboradores"
+                              className="p-1 rounded text-purple-700 hover:bg-purple-100 transition cursor-pointer"
+                            >
+                              <DoorOpen className="w-3.5 h-3.5" />
+                            </button>
+                          )}
+
+                          {/* Google Agenda */}
+                          <a
+                            href={generateGoogleCalendarUrl(res)}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            title="Adicionar ao Google Agenda"
+                            className="p-1 rounded text-slate-600 hover:text-[#7D1416] hover:bg-white transition"
+                          >
+                            <ExternalLink className="w-3.5 h-3.5" />
+                          </a>
+
+                          {/* Baixar arquivo .ICS */}
+                          <button
+                            type="button"
+                            onClick={() => downloadIcsFile(res)}
+                            title="Baixar para Outlook / Apple Calendar (.ics)"
+                            className="p-1 rounded text-slate-600 hover:text-[#252A34] hover:bg-white transition cursor-pointer"
+                          >
+                            <Download className="w-3.5 h-3.5" />
+                          </button>
+
                           {/* Ver detalhamento do chamado */}
                           <button
                             type="button"

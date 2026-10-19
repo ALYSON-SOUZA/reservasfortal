@@ -80,6 +80,12 @@ export function hasTimeConflict(
   return { hasConflict: false };
 }
 
+export function timeToMinutes(timeStr: string): number {
+  if (!timeStr) return 0;
+  const parts = (timeStr || '').split(':').map(Number);
+  return (parts[0] || 0) * 60 + (parts[1] || 0);
+}
+
 /**
  * Returns all reservations that have time overlap with a given reservation
  */
@@ -89,13 +95,8 @@ export function getConflictingReservations(
 ): Reservation[] {
   if (!target.dia || !target.sala || !target.horaInicial || !target.horaFinal) return [];
 
-  const toMinutes = (timeStr: string) => {
-    const parts = (timeStr || '').split(':').map(Number);
-    return (parts[0] || 0) * 60 + (parts[1] || 0);
-  };
-
-  const targetStart = toMinutes(target.horaInicial);
-  const targetEnd = toMinutes(target.horaFinal);
+  const targetStart = timeToMinutes(target.horaInicial);
+  const targetEnd = timeToMinutes(target.horaFinal);
   const targetSala = (target.sala || '').trim().toLowerCase();
 
   return allReservations.filter((res) => {
@@ -103,8 +104,8 @@ export function getConflictingReservations(
     if (res.dia !== target.dia) return false;
     if ((res.sala || '').trim().toLowerCase() !== targetSala) return false;
 
-    const resStart = toMinutes(res.horaInicial);
-    const resEnd = toMinutes(res.horaFinal);
+    const resStart = timeToMinutes(res.horaInicial);
+    const resEnd = timeToMinutes(res.horaFinal);
 
     return targetStart < resEnd && resStart < targetEnd;
   });

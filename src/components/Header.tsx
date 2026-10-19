@@ -18,6 +18,7 @@ import {
 } from 'lucide-react';
 import { FilterOptions, AppUser, Filial } from '../types';
 import { maskCPF } from '../utils/lgpdUtils';
+import { normalizeFilialName } from '../utils/filialUtils';
 
 interface HeaderProps {
   onOpenNewModal: () => void;
@@ -33,6 +34,7 @@ interface HeaderProps {
   onOpenAnalyticsModal: () => void;
   onOpenSectorManagerModal: () => void;
   onOpenRoomManagerModal: () => void;
+  onOpenAuditModal?: () => void;
   isCpfMasked?: boolean;
   onToggleCpfMask?: () => void;
   activeView?: 'list' | 'timeline';
@@ -62,6 +64,7 @@ export const Header: React.FC<HeaderProps> = ({
   onOpenSectorManagerModal,
   onOpenRoomManagerModal,
   onOpenBranchManagerModal,
+  onOpenAuditModal,
   isCpfMasked = true,
   onToggleCpfMask,
   filiaisList = [],
@@ -88,6 +91,8 @@ export const Header: React.FC<HeaderProps> = ({
     second: '2-digit',
   });
 
+  const activeNormalized = normalizeFilialName(filters.filial);
+
   // Contar quantos filtros estão ativos
   const activeFiltersCount = [
     Boolean(filters.dataInicio || filters.dataFim || filters.data),
@@ -95,6 +100,7 @@ export const Header: React.FC<HeaderProps> = ({
     Boolean(filters.glpi),
     Boolean(filters.sala),
     Boolean(filters.setor),
+    Boolean(filters.filial),
     filters.mostrarEncerradas,
   ].filter(Boolean).length;
 
@@ -251,6 +257,20 @@ export const Header: React.FC<HeaderProps> = ({
               </button>
             )}
 
+            {/* Botão Histórico de Auditoria */}
+            {onOpenAuditModal && (
+              <button
+                type="button"
+                id="btn-auditoria-header"
+                onClick={onOpenAuditModal}
+                title="Histórico de Auditoria e Governança (LGPD)"
+                className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-white/10 hover:bg-white/20 text-white border border-white/20 text-xs font-semibold font-dm-sans transition shadow-xs active:scale-95 cursor-pointer"
+              >
+                <ShieldCheck className="w-3.5 h-3.5 text-[#EAEAEA]" />
+                <span className="hidden md:inline">Auditoria</span>
+              </button>
+            )}
+
             {/* Botão Calendário Mensal */}
             <button
               type="button"
@@ -330,7 +350,7 @@ export const Header: React.FC<HeaderProps> = ({
               onClick={() => onSelectFilial?.('')}
               title="Exibir todas as salas e filiais"
               className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-xs font-semibold font-dm-sans transition shadow-xs active:scale-95 cursor-pointer shrink-0 ${
-                !filters.filial
+                !activeNormalized
                   ? 'bg-white text-[#7D1416] font-bold border border-white shadow-md'
                   : 'bg-white/10 hover:bg-white/20 text-white border border-white/20'
               }`}
@@ -343,10 +363,10 @@ export const Header: React.FC<HeaderProps> = ({
             <button
               type="button"
               id="btn-filial-maringa"
-              onClick={() => onSelectFilial?.(filters.filial === 'Maringá (Matriz)' ? '' : 'Maringá (Matriz)')}
+              onClick={() => onSelectFilial?.(activeNormalized === 'Maringá (Matriz)' ? '' : 'Maringá (Matriz)')}
               title="Matriz Maringá — PR (Sede Principal Bellinati Perez)"
               className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-xs font-bold font-dm-sans transition shadow-xs active:scale-95 cursor-pointer shrink-0 ${
-                filters.filial === 'Maringá (Matriz)'
+                activeNormalized === 'Maringá (Matriz)'
                   ? 'bg-amber-400 text-[#252A34] font-black border-2 border-amber-300 ring-2 ring-amber-400/50 shadow-md'
                   : 'bg-amber-400/20 hover:bg-amber-400/30 text-amber-200 border border-amber-400/50 ring-1 ring-amber-400/30'
               }`}
@@ -362,10 +382,10 @@ export const Header: React.FC<HeaderProps> = ({
             <button
               type="button"
               id="btn-filial-curitiba-park"
-              onClick={() => onSelectFilial?.(filters.filial === 'Curitiba Park & Business' ? '' : 'Curitiba Park & Business')}
+              onClick={() => onSelectFilial?.(activeNormalized === 'Curitiba Park & Business' ? '' : 'Curitiba Park & Business')}
               title="Unidade Curitiba Park & Business — PR"
               className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-xs font-semibold font-dm-sans transition shadow-xs active:scale-95 cursor-pointer shrink-0 ${
-                filters.filial === 'Curitiba Park & Business'
+                activeNormalized === 'Curitiba Park & Business'
                   ? 'bg-white text-[#7D1416] font-bold border border-white shadow-md'
                   : 'bg-white/10 hover:bg-white/20 text-white border border-white/20'
               }`}
@@ -378,10 +398,10 @@ export const Header: React.FC<HeaderProps> = ({
             <button
               type="button"
               id="btn-filial-curitiba-cebp"
-              onClick={() => onSelectFilial?.(filters.filial === 'Curitiba/CEBP' ? '' : 'Curitiba/CEBP')}
+              onClick={() => onSelectFilial?.(activeNormalized === 'Curitiba/CEBP' ? '' : 'Curitiba/CEBP')}
               title="Unidade Curitiba / CEBP — PR"
               className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-xs font-semibold font-dm-sans transition shadow-xs active:scale-95 cursor-pointer shrink-0 ${
-                filters.filial === 'Curitiba/CEBP'
+                activeNormalized === 'Curitiba/CEBP'
                   ? 'bg-white text-[#7D1416] font-bold border border-white shadow-md'
                   : 'bg-white/10 hover:bg-white/20 text-white border border-white/20'
               }`}
@@ -394,10 +414,10 @@ export const Header: React.FC<HeaderProps> = ({
             <button
               type="button"
               id="btn-filial-curitiba-marechal"
-              onClick={() => onSelectFilial?.(filters.filial === 'Curitiba/Marechal' ? '' : 'Curitiba/Marechal')}
+              onClick={() => onSelectFilial?.(activeNormalized === 'Curitiba/Marechal' ? '' : 'Curitiba/Marechal')}
               title="Unidade Curitiba / Marechal — PR"
               className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-xs font-semibold font-dm-sans transition shadow-xs active:scale-95 cursor-pointer shrink-0 ${
-                filters.filial === 'Curitiba/Marechal'
+                activeNormalized === 'Curitiba/Marechal'
                   ? 'bg-white text-[#7D1416] font-bold border border-white shadow-md'
                   : 'bg-white/10 hover:bg-white/20 text-white border border-white/20'
               }`}
@@ -410,10 +430,10 @@ export const Header: React.FC<HeaderProps> = ({
             <button
               type="button"
               id="btn-filial-curitiba-toronto"
-              onClick={() => onSelectFilial?.(filters.filial === 'Curitiba/Toronto' ? '' : 'Curitiba/Toronto')}
+              onClick={() => onSelectFilial?.(activeNormalized === 'Curitiba/Toronto' ? '' : 'Curitiba/Toronto')}
               title="Unidade Curitiba / Toronto — PR"
               className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-xs font-semibold font-dm-sans transition shadow-xs active:scale-95 cursor-pointer shrink-0 ${
-                filters.filial === 'Curitiba/Toronto'
+                activeNormalized === 'Curitiba/Toronto'
                   ? 'bg-white text-[#7D1416] font-bold border border-white shadow-md'
                   : 'bg-white/10 hover:bg-white/20 text-white border border-white/20'
               }`}
@@ -426,10 +446,10 @@ export const Header: React.FC<HeaderProps> = ({
             <button
               type="button"
               id="btn-filial-fortaleza-planalto"
-              onClick={() => onSelectFilial?.(filters.filial === 'Fortaleza/planalto' ? '' : 'Fortaleza/planalto')}
+              onClick={() => onSelectFilial?.(activeNormalized === 'Fortaleza/planalto' ? '' : 'Fortaleza/planalto')}
               title="Unidade Fortaleza / planalto — CE"
               className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-xs font-semibold font-dm-sans transition shadow-xs active:scale-95 cursor-pointer shrink-0 ${
-                filters.filial === 'Fortaleza/planalto'
+                activeNormalized === 'Fortaleza/planalto'
                   ? 'bg-white text-[#7D1416] font-bold border border-white shadow-md'
                   : 'bg-white/10 hover:bg-white/20 text-white border border-white/20'
               }`}
@@ -449,24 +469,27 @@ export const Header: React.FC<HeaderProps> = ({
                     'Curitiba/Marechal',
                     'Curitiba/Toronto',
                     'Fortaleza/planalto',
-                  ].includes(f.nome)
+                  ].some((std) => normalizeFilialName(std) === normalizeFilialName(f.nome))
               )
-              .map((f) => (
-                <button
-                  key={f.id}
-                  type="button"
-                  onClick={() => onSelectFilial?.(filters.filial === f.nome ? '' : f.nome)}
-                  title={`Unidade ${f.nome} — ${f.cidade}`}
-                  className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-xs font-semibold font-dm-sans transition shadow-xs active:scale-95 cursor-pointer shrink-0 ${
-                    filters.filial === f.nome
-                      ? 'bg-white text-[#7D1416] font-bold border border-white shadow-md'
-                      : 'bg-white/10 hover:bg-white/20 text-white border border-white/20'
-                  }`}
-                >
-                  <MapPin className="w-3.5 h-3.5 text-[#EAEAEA]" />
-                  <span>{f.nome}</span>
-                </button>
-              ))}
+              .map((f) => {
+                const isCustomActive = activeNormalized === normalizeFilialName(f.nome);
+                return (
+                  <button
+                    key={f.id}
+                    type="button"
+                    onClick={() => onSelectFilial?.(isCustomActive ? '' : f.nome)}
+                    title={`Unidade ${f.nome} — ${f.cidade}`}
+                    className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-xs font-semibold font-dm-sans transition shadow-xs active:scale-95 cursor-pointer shrink-0 ${
+                      isCustomActive
+                        ? 'bg-white text-[#7D1416] font-bold border border-white shadow-md'
+                        : 'bg-white/10 hover:bg-white/20 text-white border border-white/20'
+                    }`}
+                  >
+                    <MapPin className="w-3.5 h-3.5 text-[#EAEAEA]" />
+                    <span>{f.nome}</span>
+                  </button>
+                );
+              })}
 
             {/* Botão Acesso Rápido para Registro/Gerenciamento de Filiais */}
             {onOpenBranchManagerModal && (

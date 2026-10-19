@@ -8,6 +8,7 @@ import {
   getConflictPriorityInfo,
 } from '../utils/dateUtils';
 import { canEditOrDelete } from '../utils/rbac';
+import { generateGoogleCalendarUrl, downloadIcsFile } from '../utils/calendarExport';
 import {
   X,
   Ticket,
@@ -25,6 +26,10 @@ import {
   ShieldCheck,
   Lock,
   Star,
+  Download,
+  ExternalLink,
+  DoorOpen,
+  Repeat,
 } from 'lucide-react';
 
 interface ReservationDetailModalProps {
@@ -37,6 +42,8 @@ interface ReservationDetailModalProps {
   onEdit: (reservation: Reservation) => void;
   onDelete: (reservation: Reservation) => void;
   onViewUserProfile?: (solicitante: string) => void;
+  onCheckIn?: (reservation: Reservation) => void;
+  onReleaseRoom?: (reservation: Reservation) => void;
 }
 
 export const ReservationDetailModal: React.FC<ReservationDetailModalProps> = ({
@@ -49,6 +56,8 @@ export const ReservationDetailModal: React.FC<ReservationDetailModalProps> = ({
   onEdit,
   onDelete,
   onViewUserProfile,
+  onCheckIn,
+  onReleaseRoom,
 }) => {
   const [copiedSummary, setCopiedSummary] = useState(false);
   const [copiedGlpi, setCopiedGlpi] = useState(false);
@@ -138,6 +147,24 @@ export const ReservationDetailModal: React.FC<ReservationDetailModalProps> = ({
 
   // Badge do status da reserva (Brandbook Bellinati Perez)
   const renderStatusBadge = () => {
+    if (reservation.status === 'liberada_antecipadamente') {
+      return (
+        <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-purple-600 text-white shadow-xs">
+          <DoorOpen className="w-3.5 h-3.5 text-white" />
+          <span>LIBERADA ANTECIPADAMENTE</span>
+        </span>
+      );
+    }
+
+    if (reservation.status === 'checkin_realizado') {
+      return (
+        <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-emerald-600 text-white shadow-xs">
+          <CheckCircle2 className="w-3.5 h-3.5 text-white" />
+          <span>CHECK-IN CONFIRMADO (EM USO)</span>
+        </span>
+      );
+    }
+
     switch (status) {
       case 'em_andamento':
         return (
@@ -464,6 +491,74 @@ export const ReservationDetailModal: React.FC<ReservationDetailModalProps> = ({
               </div>
             </div>
           )}
+          {/* Ações Rápidas: Check-in, Liberação e Exportação para Agendas */}
+          <div className="p-4 bg-slate-50 border border-slate-200 rounded-2xl space-y-3 font-dm-sans">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-bold text-[#7D1416] font-raleway flex items-center gap-1.5">
+                <Clock className="w-3.5 h-3.5 text-[#AD2F3B]" />
+                Operações de Sala & Calendário
+              </span>
+              {reservation.recorrenciaTag && (
+                <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-[#7D1416]/10 text-[#7D1416] border border-[#7D1416]/20 flex items-center gap-1">
+                  <Repeat className="w-3 h-3" />
+                  Recorrência #{reservation.recorrenciaTag}
+                </span>
+              )}
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2">
+              {/* Check-in */}
+              {onCheckIn && reservation.status !== 'checkin_realizado' && reservation.status !== 'liberada_antecipadamente' && (
+                <button
+                  type="button"
+                  id="btn-detalhes-checkin"
+                  onClick={() => onCheckIn(reservation)}
+                  className="px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold font-raleway flex items-center gap-1.5 transition shadow-xs cursor-pointer"
+                  title="Confirmar presença física e marcar a sala como em uso ativo"
+                >
+                  <CheckCircle2 className="w-4 h-4" />
+                  <span>Fazer Check-in da Sala</span>
+                </button>
+              )}
+
+              {/* Liberar Sala Antecipadamente */}
+              {onReleaseRoom && reservation.status !== 'liberada_antecipadamente' && (
+                <button
+                  type="button"
+                  id="btn-detalhes-liberar-sala"
+                  onClick={() => onReleaseRoom(reservation)}
+                  className="px-3.5 py-2 rounded-xl bg-purple-700 hover:bg-purple-800 text-white text-xs font-bold font-raleway flex items-center gap-1.5 transition shadow-xs cursor-pointer"
+                  title="Liberar a sala imediatamente para outros colaboradores caso a reunião já tenha encerrado"
+                >
+                  <DoorOpen className="w-4 h-4" />
+                  <span>Liberar Sala Agora</span>
+                </button>
+              )}
+
+              {/* Google Calendar */}
+              <a
+                href={generateGoogleCalendarUrl(reservation)}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="px-3 py-2 rounded-xl bg-white hover:bg-slate-100 text-[#252A34] border border-slate-300 text-xs font-semibold flex items-center gap-1.5 transition shadow-2xs"
+                title="Adicionar evento diretamente na sua conta do Google Agenda"
+              >
+                <ExternalLink className="w-3.5 h-3.5 text-[#AD2F3B]" />
+                <span>Google Agenda</span>
+              </a>
+
+              {/* Outlook / Apple .ICS */}
+              <button
+                type="button"
+                onClick={() => downloadIcsFile(reservation)}
+                className="px-3 py-2 rounded-xl bg-white hover:bg-slate-100 text-[#252A34] border border-slate-300 text-xs font-semibold flex items-center gap-1.5 transition shadow-2xs cursor-pointer"
+                title="Baixar arquivo .ICS compatível com Outlook, Apple Calendar e Thunderbird"
+              >
+                <Download className="w-3.5 h-3.5 text-[#AD2F3B]" />
+                <span>Outlook / iCal (.ics)</span>
+              </button>
+            </div>
+          </div>
 
           {/* Histórico & Auditoria */}
           <div className="p-3.5 bg-slate-100/70 border border-slate-200 rounded-2xl text-[11px] text-slate-600 space-y-1.5">
