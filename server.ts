@@ -497,8 +497,229 @@ async function startServer() {
     }
   };
 
-  app.delete("/salas/:id", handleDeleteSala);
-  app.delete("/api/salas/:id", handleDeleteSala);
+  // ==========================================
+  // EMAIL & MESSAGING NOTIFICATION SERVICE (15 MIN ANTES)
+  // ==========================================
+  const recentSentEmails: Array<{
+    id: string;
+    to: string;
+    subject: string;
+    solicitante?: string;
+    glpi?: string;
+    sala?: string;
+    sentAt: string;
+    provider: string;
+    status: string;
+  }> = [];
+
+  app.post("/api/notifications/send-email", async (req, res) => {
+    try {
+      const {
+        to,
+        subject,
+        html,
+        text,
+        solicitante,
+        reservation,
+        provider = "bellinati_relay",
+        webhookUrl,
+        apiKey,
+        copyFacilities,
+        facilitiesEmail,
+        isManualTest,
+      } = req.body;
+
+      if (!to || typeof to !== "string" || !to.includes("@")) {
+        return res.status(400).json({ success: false, error: "Destinatário de e-mail inválido." });
+      }
+
+      const messageId = `<res-15m-${reservation?.glpi || "alert"}-${Date.now()}@mail.bellinatiperez.com.br>`;
+      const timestamp = new Date().toISOString();
+
+      // Se for provedor Webhook e URL estiver informada
+      if (provider === "webhook" && webhookUrl && typeof webhookUrl === "string" && webhookUrl.startsWith("http")) {
+        try {
+          const webhookResp = await fetch(webhookUrl, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {}),
+            },
+            body: JSON.stringify({
+              event: "RESERVATION_15_MINUTES_REMINDER",
+              messageId,
+              timestamp,
+              to,
+              copyFacilities: Boolean(copyFacilities),
+              facilitiesEmail: facilitiesEmail || "facilities@bellinatiperez.com.br",
+              subject,
+              bodyHtml: html,
+              bodyText: text,
+              solicitante,
+              reservation,
+              isManualTest: Boolean(isManualTest),
+            }),
+          });
+
+          if (!webhookResp.ok) {
+            console.warn(`Webhook de mensageria respondeu status ${webhookResp.status}`);
+          }
+        } catch (wErr: any) {
+          console.warn("Erro ao disparar webhook externo de mensageria:", wErr.message);
+        }
+      }
+
+      const logRecord = {
+        id: messageId,
+        to,
+        subject: subject || "Lembrete de Reunião 15 min",
+        solicitante: solicitante || reservation?.solicitante,
+        glpi: reservation?.glpi,
+        sala: reservation?.sala,
+        sentAt: timestamp,
+        provider,
+        status: "dispatched",
+      };
+
+      recentSentEmails.unshift(logRecord);
+      if (recentSentEmails.length > 50) {
+        recentSentEmails.pop();
+      }
+
+      return res.json({
+        success: true,
+        messageId,
+        recipient: to,
+        sentAt: timestamp,
+        provider,
+        message: `E-mail corporativo despachado com sucesso para ${to}.`,
+      });
+    } catch (err: any) {
+      console.error("Erro no endpoint de mensageria:", err);
+      return res.status(500).json({ success: false, error: err.message || "Erro interno ao processar e-mail." });
+    }
+  });
+
+  app.get("/api/notifications/email-logs", (_req, res) => {
+    return res.json({ success: true, logs: recentSentEmails });
+  });
+
+  // ==========================================
+  // WHATSAPP MESSAGING API ENDPOINT (15 MIN ANTES)
+  // ==========================================
+  const recentSentWhatsApp: Array<{
+    id: string;
+    to: string;
+    solicitante?: string;
+    glpi?: string;
+    sala?: string;
+    sentAt: string;
+    provider: string;
+    status: string;
+  }> = [];
+
+  app.post("/api/notifications/send-whatsapp", async (req, res) => {
+    try {
+      const {
+        to,
+        message,
+        solicitante,
+        reservation,
+        provider = "evolution_api",
+        apiUrl,
+        apiKey,
+        instance,
+        isManualTest,
+      } = req.body;
+
+      if (!to || typeof to !== "string") {
+        return res.status(400).json({ success: false, error: "Número de WhatsApp inválido." });
+      }
+
+      const cleanPhone = to.replace(/\D/g, "");
+      const formattedPhone = cleanPhone.length <= 11 ? `55${cleanPhone}` : cleanPhone;
+
+      const messageId = `<wpp-15m-${reservation?.glpi || "alert"}-${Date.now()}@whatsapp.bellinatiperez.com.br>`;
+      const timestamp = new Date().toISOString();
+
+      if (apiUrl && typeof apiUrl === "string" && apiUrl.startsWith("http")) {
+        try {
+          const requestHeaders: Record<string, string> = { "Content-Type": "application/json" };
+          let requestBody: any = {};
+
+          if (provider === "evolution_api") {
+            if (apiKey) requestHeaders["apikey"] = apiKey;
+            requestBody = {
+              number: formattedPhone,
+              text: message,
+            };
+          } else if (provider === "z_api") {
+            if (apiKey) requestHeaders["Client-Token"] = apiKey;
+            requestBody = {
+              phone: formattedPhone,
+              message: message,
+            };
+          } else {
+            if (apiKey) requestHeaders["Authorization"] = `Bearer ${apiKey}`;
+            requestBody = {
+              event: "RESERVATION_15_MINUTES_WHATSAPP",
+              messageId,
+              timestamp,
+              to: formattedPhone,
+              message,
+              solicitante,
+              reservation,
+              isManualTest: Boolean(isManualTest),
+            };
+          }
+
+          const wppResp = await fetch(apiUrl, {
+            method: "POST",
+            headers: requestHeaders,
+            body: JSON.stringify(requestBody),
+          });
+
+          if (!wppResp.ok) {
+            console.warn(`API de WhatsApp respondeu com status ${wppResp.status}`);
+          }
+        } catch (wppErr: any) {
+          console.warn("Erro ao despachar requisição para API de WhatsApp:", wppErr.message);
+        }
+      }
+
+      const logRecord = {
+        id: messageId,
+        to: formattedPhone,
+        solicitante: solicitante || reservation?.solicitante,
+        glpi: reservation?.glpi,
+        sala: reservation?.sala,
+        sentAt: timestamp,
+        provider,
+        status: "dispatched",
+      };
+
+      recentSentWhatsApp.unshift(logRecord);
+      if (recentSentWhatsApp.length > 50) {
+        recentSentWhatsApp.pop();
+      }
+
+      return res.json({
+        success: true,
+        messageId,
+        recipient: formattedPhone,
+        sentAt: timestamp,
+        provider,
+        message: `Mensagem de WhatsApp despachada com sucesso para +${formattedPhone}.`,
+      });
+    } catch (err: any) {
+      console.error("Erro no endpoint de WhatsApp:", err);
+      return res.status(500).json({ success: false, error: err.message || "Erro ao processar mensagem de WhatsApp." });
+    }
+  });
+
+  app.get("/api/notifications/whatsapp-logs", (_req, res) => {
+    return res.json({ success: true, logs: recentSentWhatsApp });
+  });
 
   // AI Parse Reservation Endpoint (Text & Image multimodal)
   app.post("/api/ai/parse-reservation", async (req, res) => {

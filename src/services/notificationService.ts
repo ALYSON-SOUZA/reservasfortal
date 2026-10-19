@@ -1,10 +1,12 @@
 import { Reservation } from '../types';
+import { messagingService } from './messagingService';
 
 export interface NotificationSettings {
   enabled: boolean;
   sound: boolean;
   leadMinutes: number; // Padrão: 15 minutos
   notifyAll: boolean;  // Se false, notifica todas as reuniões ou apenas do usuário
+  emailEnabled?: boolean; // Disparo automático de e-mail ao solicitante
 }
 
 export interface ScheduledAlertItem {
@@ -18,6 +20,8 @@ export interface ScheduledAlertItem {
   minutesUntilAlert: number;
   minutesUntilStart: number;
   status: 'pending' | 'triggered' | 'in_progress' | 'finished';
+  emailSent?: boolean;
+  whatsappSent?: boolean;
 }
 
 const SETTINGS_KEY = 'reservas_bellinati_notif_settings';
@@ -262,6 +266,9 @@ class NotificationService {
           status = 'pending';
         }
 
+        const emailSent = messagingService.hasDispatchedForReservation(res.id, res.dia, leadMinutes);
+        const whatsappSent = messagingService.hasDispatchedWhatsAppForReservation(res.id, res.dia, leadMinutes);
+
         return {
           id: res.id,
           reservation: res,
@@ -276,6 +283,8 @@ class NotificationService {
           minutesUntilAlert,
           minutesUntilStart,
           status,
+          emailSent,
+          whatsappSent,
         };
       })
       .sort((a, b) => a.startTime.getTime() - b.startTime.getTime());
@@ -328,6 +337,21 @@ class NotificationService {
           });
           if (this.recentHistory.length > 20) {
             this.recentHistory.pop();
+          }
+
+          // Dispara e-mail automático para o solicitante se o serviço de e-mail estiver ativo
+          const messagingConfig = messagingService.getConfig();
+          if (messagingConfig.enabled && !messagingService.hasDispatchedForReservation(res.id, res.dia, leadMinutes)) {
+            messagingService.dispatchReservationReminder(res).catch((e) => {
+              console.warn('Falha no disparo do e-mail automático para o solicitante:', e);
+            });
+          }
+
+          // Dispara lembrete via API de mensageria (WhatsApp) para o solicitante se ativo
+          if (messagingConfig.whatsappEnabled && !messagingService.hasDispatchedWhatsAppForReservation(res.id, res.dia, leadMinutes)) {
+            messagingService.dispatchWhatsAppReminder(res).catch((wErr) => {
+              console.warn('Falha no disparo automático via API de WhatsApp:', wErr);
+            });
           }
 
           // Dispara notificação nativa do navegador
